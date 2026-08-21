@@ -12,6 +12,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import "dotenv/config";
 import pg from "pg";
+import { sslConfigFor } from "../src/db/pgSsl.js";
 
 const { Client } = pg;
 
@@ -19,7 +20,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS_DIR = path.join(__dirname, "..", "src", "db", "migrations");
 
 export async function runMigrations(databaseUrl: string): Promise<void> {
-  const client = new Client({ connectionString: databaseUrl });
+  const client = new Client({ connectionString: databaseUrl, ssl: sslConfigFor(databaseUrl) });
   await client.connect();
 
   try {

@@ -10,6 +10,7 @@
 
 import "dotenv/config";
 import pg from "pg";
+import { sslConfigFor } from "../../src/db/pgSsl";
 
 const { Pool } = pg;
 
@@ -30,7 +31,7 @@ export function getTestPool(): pg.Pool {
         "TEST_DATABASE_URL must not equal DATABASE_URL — tests TRUNCATE tables on every run and would wipe real data.",
       );
     }
-    pool = new Pool({ connectionString: databaseUrl });
+    pool = new Pool({ connectionString: databaseUrl, ssl: sslConfigFor(databaseUrl) });
   }
   return pool;
 }

@@ -768,3 +768,63 @@ as something the orchestrator points at, not something living inside
   and everything else merged so far. PR #1 now shows
   `mergeStateStatus: CLEAN` with a genuinely passing quality gate. PR #4
   is closed (content already on `main` via PR #5, see above).
+
+## Moving off local Postgres — SingleStore checked and rejected, Render Postgres used instead
+
+- **SingleStore was the first request, checked before assuming it would
+  work**: `WebSearch` confirmed SingleStore is MySQL-wire-protocol
+  compatible, not Postgres-wire-protocol compatible — it markets itself
+  as a "MySQL/PostgreSQL *alternative*" (you migrate schema/queries to
+  it), not something a Postgres client like `pg` can connect to. This
+  project's schema also leans on Postgres-specific features
+  (`gen_random_uuid()`, `timestamptz`, `RETURNING *`) that don't carry
+  over as a drop-in. Surfaced this before writing any code rather than
+  discovering it mid-migration; the user chose a real hosted Postgres
+  instead (Render, since a Render account already existed from Phase 6).
+- **Render's Postgres creation API required incremental discovery**, same
+  method as Phase 6's web service: `POST /v1/postgres` with an empty body
+  returned a generic `"not found"`, but once `ownerId` was included the
+  real validation chain appeared (`"plan is required"` →
+  `"version is required"` → success). Free plan created successfully —
+  **and auto-expires 30 days after creation** (`expiresAt` in the
+  response) unless upgraded, worth knowing since this isn't a permanent
+  swap without further action.
+- **The connection was blocked twice, for two different reasons, and
+  neither was a client-config problem**:
+  1. New Postgres instances default to `ipAllowList: null` — deny-all —
+     unlike the web service (which defaults open). Setting this via API
+     (`0.0.0.0/0`) was blocked by this environment's auto-mode permission
+     classifier as a real network-exposure change; correctly so, since
+     it's genuinely opening a database to the internet. Asked the user to
+     add it via the Render dashboard instead of working around the block.
+  2. Even after the user said it was added, the API kept reporting
+     `ipAllowList: null` with `updatedAt` unchanged since creation —
+     the dashboard change hadn't actually saved. Caught by comparing what
+     the API reported against what the user described seeing, not by
+     trusting either source alone; asked the user to check for a separate
+     "Save" confirmation, which resolved it.
+  3. Diagnosed the actual connection failures methodically rather than
+     guessing at SSL flags: raw TCP connect succeeded (ruling out
+     network/firewall issues) while both `pg`'s SSL variants *and* the
+     official `postgres:16` image's own `psql` client failed identically
+     with an abrupt SSL closure — strong evidence the problem was
+     server-side (the still-`null` allow list), not a client
+     misconfiguration, confirmed once the allow list actually saved.
+- **`src/db/pgSsl.ts`**: rather than a new env var to keep in sync with
+  `DATABASE_URL`, SSL is derived from the connection string's hostname —
+  `localhost`/`127.0.0.1` get `ssl: false` (local Docker Postgres doesn't
+  speak TLS at all), anything else gets `ssl: { rejectUnauthorized:
+  false }`. Wired into `pool.ts`, `migrate.ts` (so both the dev and test
+  migration paths pick it up automatically), and `tests/helpers/db.ts`
+  (a no-op today since `TEST_DATABASE_URL` deliberately stayed local, but
+  keeps every Postgres connection in the codebase going through the same
+  logic rather than two of three doing it and one not). Covered by a
+  direct unit test rather than just trusting it through integration.
+- **`TEST_DATABASE_URL` deliberately did not move** — tests `TRUNCATE`
+  it on every run; paying cloud round-trip latency for a table that gets
+  wiped every test run has no upside. Only `DATABASE_URL` (the real
+  app data) moved to Render.
+- **Existing local data was not migrated** — the old local Docker
+  Postgres data (leftover test-fixture rows, SCRUM-18's history) stays
+  exactly where it was, untouched; the new Render database started from
+  a clean `npm run migrate` run. Not asked for, so not done.

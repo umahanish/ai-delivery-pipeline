@@ -1,4 +1,5 @@
 import pg from "pg";
+import { sslConfigFor } from "./pgSsl";
 
 const { Pool } = pg;
 
@@ -11,7 +12,7 @@ export function getPool(): pg.Pool {
     if (!databaseUrl) {
       throw new Error("DATABASE_URL is not set (see .env.example)");
     }
-    pool = new Pool({ connectionString: databaseUrl });
+    pool = new Pool({ connectionString: databaseUrl, ssl: sslConfigFor(databaseUrl) });
   }
   return pool;
 }
