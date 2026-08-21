@@ -141,3 +141,72 @@ agent) are deliberately not started yet — this is JIRA-story-creation only.
      test for this exact case was added — see
      `tests/lib/createBacklogItem.test.ts`, "still saves the row when the
      JIRA client factory itself throws."
+
+## JIRA connection — live verification (post-Phase-3)
+
+- **JIRA now genuinely connects to `awscognextrain2.atlassian.net`, SCRUM
+  project**: real credentials configured in `.env` (not committed — it's
+  gitignored), verified with a real `GET /rest/api/3/myself` call, then a
+  real end-to-end submission that created an actual story
+  ([SCRUM-16](https://awscognextrain2.atlassian.net/browse/SCRUM-16)).
+  First attempt failed with a 401 — the email address given had two
+  letters transposed (`awscgonextrain2@gmail.com` vs. the correct
+  `awscognextrain2@gmail.com`, matching the site name) — worth remembering
+  that a 401 on Basic auth doesn't distinguish "wrong password" from
+  "wrong username" from "right credentials, wrong account," so checking
+  the username against something independently known to be correct (here,
+  the site's own subdomain) narrowed it down fast.
+
+## Phase 2 — sample target repo
+
+Built as [`delivery-pipeline-sample-app`](https://github.com/umahanish/delivery-pipeline-sample-app),
+a separate repo (not a directory inside this one) — `CLAUDE.md`'s
+Architecture section already implied this by treating "the target repo"
+as something the orchestrator points at, not something living inside
+`ai-delivery-pipeline` itself.
+
+- **A REST API, not a CLI tool** — the brief offered either. Decided by
+  working backward from Phase 6: Qualys scans a *deployed, running*
+  environment, which means the sample app needs an actual web surface to
+  deploy and scan. A CLI tool has none. This wasn't optional once Phase 6
+  was taken seriously, not just a style preference.
+
+- **In-memory store, no database**: keeps the sample app fast to run,
+  simple enough for an autonomous agent's first several changes to be
+  genuinely low-risk, and avoids needing its own Postgres/docker-compose
+  just to exist. A backlog item that specifically calls for persistence
+  can still add one later — the `CLAUDE.md` written for this repo says as
+  much rather than forbidding it outright.
+
+- **`.js`-suffixed relative imports here, unlike `ai-delivery-pipeline`
+  itself**: this repo runs on plain Node + `tsx` (`NodeNext` module
+  resolution), the same setup as the sibling `devops-knowledge-mcp`
+  project — the opposite of `ai-delivery-pipeline`'s Next.js bundler
+  resolution, which is exactly what broke when this convention got
+  mixed up between the two earlier. Called out explicitly in the sample
+  app's own `CLAUDE.md` so whichever convention applies isn't left for
+  the coding agent (or a human) to guess at per-repo.
+
+- **A second real bug, caught only by actually building and running the
+  Docker image, not by trusting the Dockerfile once it was written**:
+  `tsconfig.json`'s `rootDir: "."` (needed so the same config can typecheck
+  `tests/` alongside `src/`) means `tsc` mirrors the full source tree
+  under `dist/`, landing the entrypoint at `dist/src/index.js` — not
+  `dist/index.js`, which is what the first version of the Dockerfile's
+  `CMD` assumed. `docker build` succeeded either way (a missing runtime
+  file isn't a build-time error); only actually running the container and
+  hitting `/health` surfaced `MODULE_NOT_FOUND`. Fixed the `CMD`, with a
+  comment explaining why the path looks like that, and re-verified by
+  running the rebuilt image before considering it done.
+
+- **Branch protection: `enforce_admins: true`**, not left at the default
+  (which exempts repo admins from the rule). This is the concrete
+  infrastructure behind `ai-delivery-pipeline/CLAUDE.md`'s "no exceptions,
+  no configuration flag to disable it" constraint on human PR approval —
+  a protection rule the repo owner could personally bypass wouldn't
+  actually guarantee that. `required_approving_review_count: 1` and
+  `dismiss_stale_reviews: true` (a new commit after approval needs
+  re-approval, so an agent's last-minute fix-up can't slip through under
+  an earlier approval). CI-check requirements (SonarQube, Nexus IQ, tests)
+  will be added to this same rule once Phase 5 builds them — not before,
+  since GitHub rejects requiring a status check that has never reported.

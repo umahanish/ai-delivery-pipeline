@@ -133,15 +133,18 @@ memory before checking it).
 
 ## Phase 2 — Sample target repo
 
-- [ ] A small, separate sample application (pick something genuinely
+- [x] A small, separate sample application (pick something genuinely
       simple — a CLI tool or a tiny REST API, not another MCP server) that
       the coding agent will develop against. Give it its own `CLAUDE.md`-
       style context file describing its conventions, so the agent has
       something to ground its changes in, the same way this repo has one.
-- [ ] Push it to its own GitHub repo. Set up branch protection requiring
+      Built as [`delivery-pipeline-sample-app`](https://github.com/umahanish/delivery-pipeline-sample-app)
+      — a REST API, not a CLI (see `docs/DECISIONS.md` for why Phase 6
+      made that decision for us).
+- [x] Push it to its own GitHub repo. Set up branch protection requiring
       PR review + the CI checks Phase 5 will add (add the rule now with
       just "require a review"; CI checks get added to the required list
-      once they exist).
+      once they exist). `enforce_admins: true` — see `docs/DECISIONS.md`.
 
 ## Phase 3 — Backlog UI
 
