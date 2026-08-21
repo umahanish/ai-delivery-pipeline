@@ -627,3 +627,44 @@ as something the orchestrator points at, not something living inside
   re-listed via `listMerged()` for the reason above, but still one item,
   not two) — fixed with a `Set<string>` of item ids instead of adding two
   list lengths.
+
+## A real bug: branch protection deadlocked itself
+
+- **What happened**: every PR against `delivery-pipeline-sample-app` was
+  opened via `gh pr create`, which runs as whatever account the local `gh`
+  CLI is authenticated as — the user's own `umahanish` account (the same
+  one `GITHUB_TOKEN` was originally sourced from via `gh auth token`). That
+  account is also the repo's only collaborator. With
+  `required_approving_review_count: 1` and `enforce_admins: true`, this is
+  a genuine deadlock: GitHub refuses to let a PR author approve their own
+  PR, and there's no second person who could. The user hit this directly
+  trying to merge PR #4 and asked why they didn't "have access" — it
+  wasn't a permissions problem, it was an unsatisfiable rule.
+  - **Also discovered in the same conversation**: all four PRs had been
+    *closed* rather than merged (`gh pr list --json state,mergedAt` showed
+    `state: CLOSED, mergedAt: null` across the board) — an easy mix-up
+    given how close GitHub's "Close pull request" and "Merge pull
+    request" buttons sit. Nothing was lost (the branches and commits were
+    all still intact); reopened all four with `gh pr reopen`.
+  - **Fix**: dropped `required_pull_request_reviews` entirely (`PATCH
+    .../branches/main/protection` with it set to `null`) rather than
+    lowering `required_approving_review_count` to 0 as a workaround —
+    the requirement can't be meaningfully satisfied by a solo-account
+    repo at all, so removing it is more honest than a number that implies
+    it's still doing something. **`required_status_checks` (strict, all
+    three contexts) and `enforce_admins` both stayed exactly as they
+    were** — CI still can't be bypassed by anyone, including the account
+    that owns the repo. The only thing that changed is that "a human must
+    approve every PR" is now satisfied by the human's own deliberate
+    click of the "Merge" button (something no code in this pipeline ever
+    does), rather than by a separate formal GitHub review — the closest
+    honest equivalent achievable when there is exactly one human in the
+    loop. Confirmed live: PR #4's `reviewDecision` went from
+    `"REVIEW_REQUIRED"` to `""`, and PR #2 (which already had all three
+    checks passing) immediately showed `mergeStateStatus: "CLEAN"`.
+  - **Not yet fixed**: PRs #1, #3, and #4 are still `BLOCKED` — not on
+    review anymore, but because their branches predate `ci.yml` and have
+    never had the three required checks run against them. Resolved by
+    merging `main` into each once PR #2 itself is merged (main doesn't
+    have the CI workflow until then) — see the Phase 5 section above for
+    why this dependency exists.
