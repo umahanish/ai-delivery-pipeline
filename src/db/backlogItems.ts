@@ -18,6 +18,9 @@ export type BacklogItemStatus =
   | "deployed"
   | "failed";
 
+export type PrReviewStatus = "pending" | "approved" | "changes_requested";
+export type CiStatus = "pending" | "passing" | "failing";
+
 export interface BacklogItem {
   id: string;
   title: string;
@@ -31,6 +34,8 @@ export interface BacklogItem {
   prNumber: number | null;
   prUrl: string | null;
   deployStatus: "pending" | "deployed" | "failed" | null;
+  prReviewStatus: PrReviewStatus | null;
+  ciStatus: CiStatus | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -56,6 +61,8 @@ interface BacklogItemRow {
   pr_number: number | null;
   pr_url: string | null;
   deploy_status: "pending" | "deployed" | "failed" | null;
+  pr_review_status: PrReviewStatus | null;
+  ci_status: CiStatus | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -74,6 +81,8 @@ function mapRow(row: BacklogItemRow): BacklogItem {
     prNumber: row.pr_number,
     prUrl: row.pr_url,
     deployStatus: row.deploy_status,
+    prReviewStatus: row.pr_review_status,
+    ciStatus: row.ci_status,
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at.toISOString(),
   };
@@ -155,6 +164,27 @@ export async function markPrOpen(pool: pg.Pool, id: string, prNumber: number, pr
     `UPDATE backlog_items SET status = 'pr_open', pr_number = $1, pr_url = $2, updated_at = now() WHERE id = $3`,
     [prNumber, prUrl, id],
   );
+}
+
+/**
+ * Phase 7: PR review/CI status, polled and written by the same
+ * reconciliation pass that checks for a merge (see
+ * src/orchestrator/deployStatus.ts). Only actually writes (and returns
+ * true) when a value changed, so a repeated poll that finds nothing new
+ * doesn't touch updated_at or need a pipeline_events entry every run.
+ */
+export async function updatePrStatus(
+  pool: pg.Pool,
+  id: string,
+  prReviewStatus: PrReviewStatus,
+  ciStatus: CiStatus,
+): Promise<boolean> {
+  const { rowCount } = await pool.query(
+    `UPDATE backlog_items SET pr_review_status = $1, ci_status = $2, updated_at = now()
+     WHERE id = $3 AND (pr_review_status IS DISTINCT FROM $1 OR ci_status IS DISTINCT FROM $2)`,
+    [prReviewStatus, ciStatus, id],
+  );
+  return (rowCount ?? 0) > 0;
 }
 
 /** What Phase 6's reconciliation script polls to find PRs it should check for a merge. */

@@ -16,6 +16,7 @@ import {
   markNeedsHuman,
   markPrOpen,
   markReadyForDev,
+  updatePrStatus,
 } from "../../src/db/backlogItems";
 import { getTestPool, resetDb } from "../helpers/db";
 
@@ -237,5 +238,42 @@ describe("markDeployed / markDeployFailed", () => {
     const updated = await getBacklogItem(pool, item.id);
     expect(updated?.status).toBe("failed");
     expect(updated?.deployStatus).toBe("failed");
+  });
+});
+
+describe("updatePrStatus", () => {
+  it("writes pr_review_status and ci_status and returns true when a value changed", async () => {
+    const item = await insertBacklogItem(pool, sampleInput);
+
+    const changed = await updatePrStatus(pool, item.id, "approved", "passing");
+
+    expect(changed).toBe(true);
+    const updated = await getBacklogItem(pool, item.id);
+    expect(updated?.prReviewStatus).toBe("approved");
+    expect(updated?.ciStatus).toBe("passing");
+  });
+
+  it("returns false and doesn't touch updated_at when nothing actually changed", async () => {
+    const item = await insertBacklogItem(pool, sampleInput);
+    await updatePrStatus(pool, item.id, "pending", "pending");
+    const afterFirst = await getBacklogItem(pool, item.id);
+
+    const changed = await updatePrStatus(pool, item.id, "pending", "pending");
+
+    expect(changed).toBe(false);
+    const afterSecond = await getBacklogItem(pool, item.id);
+    expect(afterSecond?.updatedAt).toBe(afterFirst?.updatedAt);
+  });
+
+  it("returns true when only one of the two values changed", async () => {
+    const item = await insertBacklogItem(pool, sampleInput);
+    await updatePrStatus(pool, item.id, "pending", "pending");
+
+    const changed = await updatePrStatus(pool, item.id, "pending", "failing");
+
+    expect(changed).toBe(true);
+    const updated = await getBacklogItem(pool, item.id);
+    expect(updated?.prReviewStatus).toBe("pending");
+    expect(updated?.ciStatus).toBe("failing");
   });
 });

@@ -668,3 +668,60 @@ as something the orchestrator points at, not something living inside
     merging `main` into each once PR #2 itself is merged (main doesn't
     have the CI workflow until then) — see the Phase 5 section above for
     why this dependency exists.
+
+## Phase 7 — status feedback in the UI
+
+- **Two new columns, one migration**: `pr_review_status` (`pending` |
+  `approved` | `changes_requested`) and `ci_status` (`pending` | `passing`
+  | `failing`) on `backlog_items`, added via `0002_status_feedback.sql`.
+  CLAUDE.md's own wording ("kept current... not by the UI polling three
+  APIs live") settled where this had to live: a local reconciliation pass
+  writes these columns, and `page.tsx` just reads them — the same
+  direction `deploy_status` already established in Phase 6, extended
+  rather than inventing a second pattern.
+- **Derived from real GitHub API responses, not assumed shapes**: PR
+  review decision comes from `GET /pulls/:number/reviews`, deduped to
+  each reviewer's *most recent* submission (a reviewer who requested
+  changes and then later approved should read as approved, not stuck)
+  before applying the "any outstanding CHANGES_REQUESTED wins over any
+  APPROVED" rule GitHub's own merge gate uses. CI status comes from `GET
+  /commits/:sha/check-runs` (not the older combined-status endpoint,
+  since GitHub Actions posts check runs, not simple statuses) —
+  `neutral`/`skipped` conclusions don't count as failing, only a genuine
+  non-success conclusion on a *completed* run does; anything still
+  queued/in-progress is `pending`, never guessed as passing.
+  `deriveReviewStatus`/`deriveCiStatus` are exported as pure functions
+  from `src/github/client.ts` specifically so this logic has direct unit
+  tests, not just tests of the class method that happens to call them.
+- **`checkPrOpenItem` now does two independent things every pass**:
+  refreshes review/CI status (regardless of merge state — the whole
+  point is seeing "changes requested" or "CI failing" *while the PR is
+  still open*, not just in hindsight after it's merged), and separately
+  checks for a merge. `updatePrStatus()` only actually writes (and
+  returns `true`) when a value changed, guarded by an `IS DISTINCT FROM`
+  in the `UPDATE`'s `WHERE` clause rather than an application-level
+  diff — so a `pipeline_events` row (`pr_status_updated`) only gets
+  logged on a real transition, and running `sync-deploy-status`
+  repeatedly against an unchanged PR doesn't spam the event log or bump
+  `updated_at` for no reason. Verified this behavior directly with a
+  test that calls `checkPrOpenItem` twice with the same fake status and
+  asserts exactly one `pr_status_updated` event exists, not two.
+- **UI verified with a real build, not just typecheck** — this project's
+  Next.js/bundler-mode import convention has bitten twice before on
+  files `tsc --noEmit` waved through; ran `next build` after the
+  `page.tsx`/`globals.css` changes and it compiled clean, then started
+  the dev server and confirmed the new PR/Review/CI/Deploy columns
+  actually render.
+- **`docs/DEMO_SCRIPT.md` is written against runs that actually
+  happened** (SCRUM-18 → PR #1, PR #2's own first CI run, etc.), not a
+  hypothetical walkthrough — consistent with how this file and the
+  README talk about what's real throughout the project.
+- **Cleaned up `.env`/`.env.example`'s leftover `SONARQUBE_*` /
+  `NEXUS_IQ_*` / `QUALYS_*` placeholders** while writing the README's
+  setup instructions — those were scaffolded in before Phase 5/6 existed
+  and were never actually read by any code; the real secrets
+  (`SONAR_TOKEN`, `RENDER_API_KEY`, `RENDER_SERVICE_ID`) live as GitHub
+  Actions secrets on `delivery-pipeline-sample-app` itself, not in this
+  project's `.env` at all. Leaving unused placeholder vars in `.env.example`
+  would have misled the next person setting this up into thinking they
+  needed to fill them in here.

@@ -34,6 +34,8 @@ CREATE TABLE backlog_items (
     pr_number           integer,
     pr_url              text,
     deploy_status       text CHECK (deploy_status IN ('pending', 'deployed', 'failed')),
+    pr_review_status    text CHECK (pr_review_status IN ('pending', 'approved', 'changes_requested')),
+    ci_status           text CHECK (ci_status IN ('pending', 'passing', 'failing')),
     created_at          timestamptz NOT NULL DEFAULT now(),
     updated_at          timestamptz NOT NULL DEFAULT now()
 );

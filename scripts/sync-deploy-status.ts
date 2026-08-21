@@ -1,9 +1,11 @@
 // `npm run sync-deploy-status` -- a one-shot pass, same convention as
-// scripts/run-orchestrator.ts: checks every pr_open item for a human
-// merge, and every merged item for a completed deploy workflow run, and
-// updates backlog_items/pipeline_events accordingly. See
+// scripts/run-orchestrator.ts: for every pr_open item, refreshes PR review
+// status + CI check results (Phase 7) and checks for a human merge; for
+// every merged item, checks for a completed deploy workflow run (Phase 6).
+// Updates backlog_items/pipeline_events accordingly -- this is what keeps
+// the UI's status columns (src/app/page.tsx) current. See
 // src/orchestrator/deployStatus.ts for why this has to run locally rather
-// than as part of the GitHub Actions deploy workflow itself.
+// than as part of the GitHub Actions workflows themselves.
 
 import "dotenv/config";
 import { listMerged, listPrOpen } from "../src/db/backlogItems.js";

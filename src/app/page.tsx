@@ -57,6 +57,10 @@ export default async function HomePage({
               <th>Target repo</th>
               <th>Status</th>
               <th>JIRA</th>
+              <th>PR</th>
+              <th>Review</th>
+              <th>CI</th>
+              <th>Deploy</th>
               <th>Created</th>
               <th />
             </tr>
@@ -82,6 +86,28 @@ export default async function HomePage({
                   ) : (
                     "—"
                   )}
+                </td>
+                <td>
+                  {item.prUrl ? (
+                    <a href={item.prUrl} target="_blank" rel="noreferrer">
+                      #{item.prNumber}
+                    </a>
+                  ) : (
+                    "—"
+                  )}
+                </td>
+                <td>
+                  {item.prReviewStatus ? (
+                    <span className={`badge review-${item.prReviewStatus}`}>{item.prReviewStatus.replaceAll("_", " ")}</span>
+                  ) : (
+                    "—"
+                  )}
+                </td>
+                <td>
+                  {item.ciStatus ? <span className={`badge ci-${item.ciStatus}`}>{item.ciStatus}</span> : "—"}
+                </td>
+                <td>
+                  {item.deployStatus ? <span className={`badge ci-${item.deployStatus === "deployed" ? "passing" : item.deployStatus === "failed" ? "failing" : "pending"}`}>{item.deployStatus}</span> : "—"}
                 </td>
                 <td>{new Date(item.createdAt).toLocaleString()}</td>
                 <td>

@@ -118,7 +118,20 @@ th {
 .status-submitted { color: var(--accent); border-color: var(--accent); }
 .status-jira_failed { color: var(--danger); border-color: var(--danger); background: var(--danger-bg); }
 .status-ready_for_dev { color: var(--success); border-color: var(--success); }
+.status-in_dev { color: var(--accent); border-color: var(--accent); }
+.status-pr_open { color: var(--accent); border-color: var(--accent); }
 .status-needs_human { color: var(--danger); border-color: var(--danger); background: var(--danger-bg); }
+.status-merged { color: var(--success); border-color: var(--success); }
+.status-deployed { color: var(--success); border-color: var(--success); background: var(--success-bg); }
+.status-failed { color: var(--danger); border-color: var(--danger); background: var(--danger-bg); }
+
+/* Phase 7: PR review + CI check status columns -- same badge language as
+   the status column above, kept as separate classes since they're
+   independent axes (a PR can be pr_open *and* changes_requested *and*
+   ci failing, all at once). */
+.review-pending, .ci-pending { color: var(--muted); border-color: var(--border); }
+.review-approved, .ci-passing { color: var(--success); border-color: var(--success); }
+.review-changes_requested, .ci-failing { color: var(--danger); border-color: var(--danger); background: var(--danger-bg); }
 
 .priority-critical, .priority-high { color: var(--danger); }
 

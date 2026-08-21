@@ -234,14 +234,16 @@ memory before checking it).
 
 ## Phase 7 — Status feedback & docs
 
-- [ ] The UI's list view shows, per item: JIRA status, PR status (open /
+- [x] The UI's list view shows, per item: JIRA status, PR status (open /
       changes requested / approved / merged), CI check results, deploy
       status — pulled from `backlog_items`/`pipeline_events`, kept current
       by the orchestrator writing to them at each step (Phases 3-6), not
-      by the UI polling three APIs live.
-- [ ] `README.md`: setup, how to run the whole pipeline locally, how to
+      by the UI polling three APIs live. (New `pr_review_status`/`ci_status`
+      columns, migration 0002, written by `npm run sync-deploy-status`'s
+      `checkPrOpenItem` — see docs/DECISIONS.md.)
+- [x] `README.md`: setup, how to run the whole pipeline locally, how to
       point it at a different target repo.
-- [ ] `docs/DEMO_SCRIPT.md`: submit a backlog item, watch it move through
+- [x] `docs/DEMO_SCRIPT.md`: submit a backlog item, watch it move through
       every stage, ending at a real PR (and, time permitting, a real
       staging deploy).
 

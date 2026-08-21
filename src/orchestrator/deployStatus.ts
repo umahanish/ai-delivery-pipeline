@@ -21,13 +21,14 @@ import {
   markDeployed,
   markDeployFailed,
   markMerged,
+  updatePrStatus,
   type BacklogItem,
 } from "../db/backlogItems";
-import type { DeployWorkflowChecker, PullRequestChecker } from "../github/client";
+import type { DeployWorkflowChecker, PrStatusChecker, PullRequestChecker } from "../github/client";
 
 export interface SyncDeployStatusDeps {
   pool: pg.Pool;
-  github: PullRequestChecker & DeployWorkflowChecker;
+  github: PullRequestChecker & DeployWorkflowChecker & PrStatusChecker;
   /** The workflow file name Actions identifies runs by, e.g. "deploy.yml". */
   deployWorkflowFileName: string;
 }
@@ -44,7 +45,19 @@ export async function checkPrOpenItem(deps: SyncDeployStatusDeps, item: BacklogI
     throw new Error(`checkPrOpenItem: item ${item.id} has status pr_open but no pr_number`);
   }
 
-  const { merged } = await deps.github.getPullRequestMergeState(item.prNumber);
+  // Review/CI status is refreshed regardless of merge state -- that's the
+  // whole point (the UI should show "changes requested" or "CI failing"
+  // while the PR is still open, not just once it's already merged).
+  const [{ merged }, prStatus] = await Promise.all([
+    deps.github.getPullRequestMergeState(item.prNumber),
+    deps.github.getPrStatus(item.prNumber),
+  ]);
+
+  const changed = await updatePrStatus(deps.pool, item.id, prStatus.reviewStatus, prStatus.ciStatus);
+  if (changed) {
+    await logPipelineEvent(deps.pool, item.id, "pr_status_updated", `review: ${prStatus.reviewStatus}, ci: ${prStatus.ciStatus}`);
+  }
+
   if (!merged) {
     return { outcome: "still_open" };
   }

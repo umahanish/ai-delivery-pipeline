@@ -1,6 +1,13 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { getBacklogItem, insertBacklogItem, markPrOpen } from "../../src/db/backlogItems";
-import type { DeployWorkflowChecker, PullRequestChecker, PullRequestMergeState, WorkflowRun } from "../../src/github/client";
+import type {
+  DeployWorkflowChecker,
+  PrStatus,
+  PrStatusChecker,
+  PullRequestChecker,
+  PullRequestMergeState,
+  WorkflowRun,
+} from "../../src/github/client";
 import { checkMergedItem, checkPrOpenItem, syncDeployStatus } from "../../src/orchestrator/deployStatus";
 import { getTestPool, resetDb } from "../helpers/db";
 
@@ -31,13 +38,17 @@ async function makePrOpenItem(prNumber = 1) {
 function fakeGithub(overrides: {
   mergeState?: PullRequestMergeState;
   run?: WorkflowRun | null;
-} = {}): PullRequestChecker & DeployWorkflowChecker {
+  prStatus?: PrStatus;
+} = {}): PullRequestChecker & DeployWorkflowChecker & PrStatusChecker {
   return {
     async getPullRequestMergeState() {
       return overrides.mergeState ?? { merged: false, mergeCommitSha: null };
     },
     async getWorkflowRunForCommit() {
       return overrides.run ?? null;
+    },
+    async getPrStatus() {
+      return overrides.prStatus ?? { reviewStatus: "pending", ciStatus: "pending" };
     },
   };
 }
@@ -73,6 +84,32 @@ describe("checkPrOpenItem", () => {
     const item = await insertBacklogItem(pool, sampleInput); // status 'submitted', no pr_number
     const github = fakeGithub();
     await expect(checkPrOpenItem({ pool, github, deployWorkflowFileName: "deploy.yml" }, item)).rejects.toThrow(/no pr_number/);
+  });
+
+  it("writes pr_review_status/ci_status even while the PR is still open, and logs pr_status_updated only when something changed", async () => {
+    const item = await makePrOpenItem();
+    const github = fakeGithub({
+      mergeState: { merged: false, mergeCommitSha: null },
+      prStatus: { reviewStatus: "changes_requested", ciStatus: "failing" },
+    });
+
+    await checkPrOpenItem({ pool, github, deployWorkflowFileName: "deploy.yml" }, item);
+
+    const persisted = await getBacklogItem(pool, item.id);
+    expect(persisted?.status).toBe("pr_open"); // still open -- this isn't a merge signal
+    expect(persisted?.prReviewStatus).toBe("changes_requested");
+    expect(persisted?.ciStatus).toBe("failing");
+
+    const { rows: firstPassEvents } = await pool.query(`SELECT event_type FROM pipeline_events WHERE backlog_item_id = $1`, [item.id]);
+    expect(firstPassEvents.map((r) => r.event_type)).toContain("pr_status_updated");
+
+    // Same status again: no new event, since nothing actually changed.
+    await checkPrOpenItem({ pool, github, deployWorkflowFileName: "deploy.yml" }, (await getBacklogItem(pool, item.id))!);
+    const { rows: secondPassEvents } = await pool.query(
+      `SELECT event_type FROM pipeline_events WHERE backlog_item_id = $1 AND event_type = 'pr_status_updated'`,
+      [item.id],
+    );
+    expect(secondPassEvents).toHaveLength(1);
   });
 });
 

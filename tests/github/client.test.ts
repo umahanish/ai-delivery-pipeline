@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { GitHubApiError, GitHubClient } from "../../src/github/client";
+import { deriveCiStatus, deriveReviewStatus, GitHubApiError, GitHubClient } from "../../src/github/client";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
@@ -96,5 +96,109 @@ describe("GitHubClient.getWorkflowRunForCommit", () => {
 
     const client = new GitHubClient({ token: "t", owner: "acme", repo: "widgets" });
     expect(await client.getWorkflowRunForCommit("deploy.yml", "nope")).toBeNull();
+  });
+});
+
+describe("deriveReviewStatus", () => {
+  it("returns pending when there are no reviews", () => {
+    expect(deriveReviewStatus([])).toBe("pending");
+  });
+
+  it("returns approved when the latest review is an approval", () => {
+    expect(
+      deriveReviewStatus([{ user: { login: "alice" }, state: "APPROVED", submitted_at: "2026-01-01T00:00:00Z" }]),
+    ).toBe("approved");
+  });
+
+  it("returns changes_requested when the latest review requests changes", () => {
+    expect(
+      deriveReviewStatus([{ user: { login: "alice" }, state: "CHANGES_REQUESTED", submitted_at: "2026-01-01T00:00:00Z" }]),
+    ).toBe("changes_requested");
+  });
+
+  it("uses only each reviewer's most recent review, not their history", () => {
+    // alice requested changes, then later approved -- should count as approved now
+    const reviews = [
+      { user: { login: "alice" }, state: "CHANGES_REQUESTED", submitted_at: "2026-01-01T00:00:00Z" },
+      { user: { login: "alice" }, state: "APPROVED", submitted_at: "2026-01-02T00:00:00Z" },
+    ];
+    expect(deriveReviewStatus(reviews)).toBe("approved");
+  });
+
+  it("treats any reviewer's outstanding CHANGES_REQUESTED as overriding another reviewer's APPROVED", () => {
+    const reviews = [
+      { user: { login: "alice" }, state: "APPROVED", submitted_at: "2026-01-01T00:00:00Z" },
+      { user: { login: "bob" }, state: "CHANGES_REQUESTED", submitted_at: "2026-01-01T00:00:00Z" },
+    ];
+    expect(deriveReviewStatus(reviews)).toBe("changes_requested");
+  });
+
+  it("ignores COMMENTED reviews for the purposes of approved/changes_requested", () => {
+    expect(
+      deriveReviewStatus([{ user: { login: "alice" }, state: "COMMENTED", submitted_at: "2026-01-01T00:00:00Z" }]),
+    ).toBe("pending");
+  });
+});
+
+describe("deriveCiStatus", () => {
+  it("returns pending when there are no check runs yet", () => {
+    expect(deriveCiStatus([])).toBe("pending");
+  });
+
+  it("returns pending while any check run is still queued or in progress", () => {
+    expect(deriveCiStatus([{ status: "in_progress", conclusion: null }])).toBe("pending");
+    expect(
+      deriveCiStatus([
+        { status: "completed", conclusion: "success" },
+        { status: "queued", conclusion: null },
+      ]),
+    ).toBe("pending");
+  });
+
+  it("returns passing when every check run completed successfully", () => {
+    expect(
+      deriveCiStatus([
+        { status: "completed", conclusion: "success" },
+        { status: "completed", conclusion: "success" },
+      ]),
+    ).toBe("passing");
+  });
+
+  it("treats neutral and skipped conclusions as not failing", () => {
+    expect(
+      deriveCiStatus([
+        { status: "completed", conclusion: "success" },
+        { status: "completed", conclusion: "neutral" },
+        { status: "completed", conclusion: "skipped" },
+      ]),
+    ).toBe("passing");
+  });
+
+  it("returns failing if any completed check run did not succeed", () => {
+    expect(
+      deriveCiStatus([
+        { status: "completed", conclusion: "success" },
+        { status: "completed", conclusion: "failure" },
+      ]),
+    ).toBe("failing");
+  });
+});
+
+describe("GitHubClient.getPrStatus", () => {
+  it("fetches the PR's head sha, then reviews and check-runs for that sha", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ head: { sha: "abc123" } }))
+      .mockResolvedValueOnce(jsonResponse([{ user: { login: "alice" }, state: "APPROVED", submitted_at: "2026-01-01T00:00:00Z" }]))
+      .mockResolvedValueOnce(jsonResponse({ check_runs: [{ status: "completed", conclusion: "success" }] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new GitHubClient({ token: "secret", owner: "acme", repo: "widgets" });
+    const result = await client.getPrStatus(7);
+
+    expect(result).toEqual({ reviewStatus: "approved", ciStatus: "passing" });
+    expect(fetchMock.mock.calls[0]![0]).toBe("https://api.github.com/repos/acme/widgets/pulls/7");
+    expect(fetchMock.mock.calls[1]![0]).toBe("https://api.github.com/repos/acme/widgets/pulls/7/reviews");
+    expect(fetchMock.mock.calls[2]![0]).toBe("https://api.github.com/repos/acme/widgets/commits/abc123/check-runs");
   });
 });

@@ -60,7 +60,58 @@ export interface DeployWorkflowChecker {
   getWorkflowRunForCommit(workflowFileName: string, headSha: string): Promise<WorkflowRun | null>;
 }
 
-export class GitHubClient implements PullRequestOpener, PullRequestChecker, DeployWorkflowChecker {
+export type PrReviewStatus = "pending" | "approved" | "changes_requested";
+export type CiStatus = "pending" | "passing" | "failing";
+
+export interface PrStatus {
+  reviewStatus: PrReviewStatus;
+  ciStatus: CiStatus;
+}
+
+/** Phase 7's reconciliation dependency slice — review decision + CI check-run results for the UI's status column. */
+export interface PrStatusChecker {
+  getPrStatus(prNumber: number): Promise<PrStatus>;
+}
+
+interface ReviewSubmission {
+  user: { login: string } | null;
+  state: string;
+  submitted_at: string;
+}
+
+interface CheckRun {
+  status: "queued" | "in_progress" | "completed";
+  conclusion: string | null;
+}
+
+/** Latest review per reviewer wins (a reviewer can re-review after requesting changes); CHANGES_REQUESTED from anyone's latest review overrides any APPROVED, matching how GitHub's own merge gate treats it. COMMENTED/DISMISSED reviews don't count toward either state. */
+export function deriveReviewStatus(reviews: ReviewSubmission[]): PrReviewStatus {
+  const latestByUser = new Map<string, ReviewSubmission>();
+  for (const review of reviews) {
+    const login = review.user?.login ?? "unknown";
+    const existing = latestByUser.get(login);
+    if (!existing || review.submitted_at > existing.submitted_at) {
+      latestByUser.set(login, review);
+    }
+  }
+
+  const states = [...latestByUser.values()].map((r) => r.state);
+  if (states.includes("CHANGES_REQUESTED")) return "changes_requested";
+  if (states.includes("APPROVED")) return "approved";
+  return "pending";
+}
+
+/** Any non-success conclusion on a completed check run fails the whole status; anything still queued/in_progress (or no check runs at all yet) is pending, never a false "passing". */
+export function deriveCiStatus(checkRuns: CheckRun[]): CiStatus {
+  if (checkRuns.length === 0) return "pending";
+  if (checkRuns.some((c) => c.status === "completed" && c.conclusion !== "success" && c.conclusion !== "neutral" && c.conclusion !== "skipped")) {
+    return "failing";
+  }
+  if (checkRuns.every((c) => c.status === "completed")) return "passing";
+  return "pending";
+}
+
+export class GitHubClient implements PullRequestOpener, PullRequestChecker, DeployWorkflowChecker, PrStatusChecker {
   constructor(private readonly config: GitHubClientConfig) {}
 
   private async request(path: string): Promise<unknown> {
@@ -110,5 +161,19 @@ export class GitHubClient implements PullRequestOpener, PullRequestChecker, Depl
     )) as { workflow_runs: { status: WorkflowRunStatus; conclusion: string | null; html_url: string }[] };
     const run = data.workflow_runs[0];
     return run ? { status: run.status, conclusion: run.conclusion, htmlUrl: run.html_url } : null;
+  }
+
+  async getPrStatus(prNumber: number): Promise<PrStatus> {
+    const pr = (await this.request(`/pulls/${prNumber}`)) as { head: { sha: string } };
+
+    const [reviews, checkRunsData] = await Promise.all([
+      this.request(`/pulls/${prNumber}/reviews`) as Promise<ReviewSubmission[]>,
+      this.request(`/commits/${pr.head.sha}/check-runs`) as Promise<{ check_runs: CheckRun[] }>,
+    ]);
+
+    return {
+      reviewStatus: deriveReviewStatus(reviews),
+      ciStatus: deriveCiStatus(checkRunsData.check_runs),
+    };
   }
 }

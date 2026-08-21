@@ -14,32 +14,29 @@ is a separate system with its own repo and lifecycle.
 
 ## Status
 
-**Built so far: Phase 1 (foundations), Phase 2 (sample target repo —
-[`delivery-pipeline-sample-app`](https://github.com/umahanish/delivery-pipeline-sample-app)),
-Phase 3 (backlog UI → JIRA), Phase 4 (the coding agent orchestrator),
-Phase 5 (CI on the PR), and Phase 6 (staging deploy + a Qualys-substitute
-scan) — proven end to end with real live runs, not just mocked tests.**
-Submitting a backlog item through the web UI creates a real JIRA story;
-marking it "ready for dev" and running `npm run orchestrator` picks it up,
-runs an isolated Claude Agent SDK implement/test/self-review loop against
-the sample repo, and opens a real PR — see [SCRUM-18 → PR #1](https://github.com/umahanish/delivery-pipeline-sample-app/pull/1)
-for the first one. Every PR against the sample repo now also runs a real
-CI gate — tests, a SonarCloud analysis, and a Trivy dependency scan
-standing in for Nexus IQ (no license/instance for the real thing exists in
-this environment — see `docs/DECISIONS.md`) — as required status checks;
-see [PR #2](https://github.com/umahanish/delivery-pipeline-sample-app/pull/2)
-for that workflow's own first (passing) run. On merge to `main`, a second
-workflow deploys the sample app to a real Render.com staging URL and runs
-an OWASP ZAP baseline scan against it (standing in for Qualys, same
-labeled-substitute convention — see [PR #3](https://github.com/umahanish/delivery-pipeline-sample-app/pull/3));
-`npm run sync-deploy-status` reconciles the result back onto the
-`backlog_items` row locally, since GitHub's cloud runners can't reach this
-project's local Postgres. Phase 7 (richer status feedback in the UI,
-demo script) is not started — see `CLAUDE.md` for the full roadmap and
-`docs/DECISIONS.md` for the reasoning behind every choice made so far,
-including several real bugs (two live-run crashes and their fixes, a test
-suite that was silently truncating the real dev database) caught by
-testing this for real rather than trusting green tests alone.
+**All 7 phases are built.** Submitting a backlog item through the web UI
+creates a real JIRA story; marking it "ready for dev" and running `npm run
+orchestrator` picks it up, runs an isolated Claude Agent SDK
+implement/test/self-review loop against the sample repo, and opens a real
+PR — see [SCRUM-18 → PR #1](https://github.com/umahanish/delivery-pipeline-sample-app/pull/1)
+for the first one. Every PR against the sample repo runs a real CI gate —
+tests, a SonarCloud analysis, and a Trivy dependency scan standing in for
+Nexus IQ (no license/instance for the real thing exists in this
+environment — see `docs/DECISIONS.md`) — as required status checks. On
+merge to `main`, a second workflow deploys the sample app to a real
+Render.com staging URL and runs an OWASP ZAP baseline scan against it
+(standing in for Qualys, same labeled-substitute convention). `npm run
+sync-deploy-status` reconciles PR review status, CI results, and deploy
+outcome back onto each `backlog_items` row — and into the list view's
+**Review**/**CI**/**Deploy** columns — since GitHub's cloud runners can't
+reach this project's local Postgres. See `docs/DEMO_SCRIPT.md` for a full
+walkthrough, `CLAUDE.md` for the phase-by-phase roadmap, and
+`docs/DECISIONS.md` for the reasoning behind every choice made along the
+way, including several real bugs (live-run crashes, a test suite that was
+silently truncating the real dev database, a branch-protection review
+requirement that turned out to be impossible to satisfy on a solo-account
+repo) caught by testing this for real rather than trusting green tests
+alone.
 
 ## End-to-end pipeline
 
@@ -54,7 +51,7 @@ flowchart TD
     PM -->|"reviews story, clicks\n'Mark ready for dev'"| READY["status: ready_for_dev"]
     READY --> DB
 
-    subgraph BUILT["Built — Phases 1-6"]
+    subgraph BUILT["Built — Phases 1-7 (all phases)"]
         ORCH["Orchestrator\n(npm run orchestrator)"] -->|"claimForDev()\nstatus: in_dev"| DB
         ORCH --> WS["Isolated workspace\nfresh clone + new branch\nstory/&lt;jira-key&gt;"]
         WS --> IMPL["Coding agent: implement\n(Claude Agent SDK)"]
@@ -72,20 +69,12 @@ flowchart TD
         MERGE --> DEPLOY["GitHub Actions:\ndeploy to Render staging"]
         DEPLOY --> ZAP["OWASP ZAP baseline scan\nagainst the live URL\n(stands in for Qualys)"]
         ZAP --> SYNC["npm run sync-deploy-status\n(local — GH Actions can't reach\nlocal Postgres)"]
-        SYNC --> DONE["status: deployed | failed"]
+        SYNC --> DONE["status: deployed | failed\n+ Review/CI columns kept current"]
+        DONE --> UI2["Backlog list view\n(JIRA / PR / Review / CI / Deploy\nper item)"]
     end
-
-    subgraph PLANNED["Planned — Phase 7 (not built yet)"]
-        UI2["Richer status feedback in the UI\n(JIRA/PR/CI/deploy status per item)"]
-        DEMO["docs/DEMO_SCRIPT.md"]
-    end
-
-    DONE -.-> UI2
 
     classDef built fill:#d4f4dd,stroke:#2e7d32,color:#1b1b1b;
-    classDef planned fill:#fff3cd,stroke:#b8860b,color:#1b1b1b;
-    class ORCH,WS,IMPL,TEST,REVIEW,PUSH,PR,STUCK,CI,GATE,MERGE,DEPLOY,ZAP,SYNC,DONE built;
-    class UI2,DEMO planned;
+    class ORCH,WS,IMPL,TEST,REVIEW,PUSH,PR,STUCK,CI,GATE,MERGE,DEPLOY,ZAP,SYNC,DONE,UI2 built;
 ```
 
 The only step that is never automated, by design, is the approval gate —
@@ -108,7 +97,7 @@ docker compose up -d postgres                                       # Postgres o
 npm run migrate                                                     # applies src/db/migrations/ to the dev DB
 docker compose exec postgres createdb -U postgres delivery_pipeline_test  # one-time: dedicated test DB
 npm run migrate:test                                                # applies the same migrations there
-npm test                                                             # 50 tests — runs against TEST_DATABASE_URL only
+npm test                                                             # runs against TEST_DATABASE_URL only
 ```
 
 `npm test` truncates `backlog_items`/`pipeline_events` between tests — it
@@ -133,7 +122,16 @@ it just marks the item `jira_failed` instead of creating a story (visible
 in the list view), rather than losing the submission. See
 `src/lib/createBacklogItem.ts`'s docstring.
 
-### Run it
+### Coding agent + GitHub setup (required for Phase 4+ — the orchestrator)
+
+Fill in `.env`:
+
+```
+GITHUB_TOKEN=          # needs repo scope on the target repo -- `gh auth token` works
+ANTHROPIC_API_KEY=     # console.anthropic.com -- powers the Claude Agent SDK coding/review passes
+```
+
+### Run the UI
 
 ```bash
 npm run dev
@@ -145,6 +143,37 @@ isn't configured), and use "Mark ready for dev" once a story exists.
 There's also a REST API at `/api/backlog-items` (`GET` to list, `POST` to
 create) for external/scripted use.
 
+### Run the whole pipeline
+
+```bash
+npm run orchestrator          # picks up every ready_for_dev item, implements + opens a PR (or marks needs_human)
+npm run sync-deploy-status    # reconciles PR review/CI/merge/deploy status back onto backlog_items -- run any time after a PR exists
+```
+
+Neither is a poll daemon — both are one-shot passes, meant to be run
+manually, on a schedule, or triggered by a webhook later. See
+`docs/DEMO_SCRIPT.md` for a full step-by-step walkthrough of a real run,
+start to finish.
+
+### Point this at a different target repo
+
+The target repo is per-backlog-item, not a global setting — just enter a
+different repo's URL (or `owner/repo` shorthand) in the **Target repo**
+field on the `/new` form, or in a `POST /api/backlog-items` call. The
+orchestrator, PR opener, and status reconciliation all derive
+owner/repo from that field via `src/github/parseRepo.ts` — no code change
+needed here.
+
+What *does* need setting up on the other end, if you want Phases 5-6's
+gates to work against it too: that repo needs its own
+`.github/workflows/ci.yml` and `deploy.yml` (copy
+`delivery-pipeline-sample-app`'s as a starting point), its own
+`SONAR_TOKEN`/`RENDER_API_KEY`/`RENDER_SERVICE_ID` secrets, its own
+`sonar-project.properties`, and branch protection requiring those checks
+— none of that lives in this repo or in `.env`. Without it, Phase 4 still
+works (the agent will implement and open a PR against any repo with the
+right `GITHUB_TOKEN` scope) — you just won't get CI/deploy gating on it.
+
 ## Project layout
 
 ```
@@ -152,10 +181,14 @@ src/
   db/            schema.sql, migrations/, pool.ts, backlogItems.ts (data access)
   jira/          client.ts (create-issue only, not a full connector), adf.ts (text -> Atlassian Document Format), fromEnv.ts
   lib/           createBacklogItem.ts — the one place "insert row, then create JIRA story" logic lives
+  agent/         runCodingAgent.ts (Claude Agent SDK wrapper), prompts.ts (implement/fix/self-review prompt building)
+  github/        client.ts (PR creation, merge/review/CI-status checks), parseRepo.ts
+  orchestrator/  git.ts, workspace.ts, processBacklogItem.ts (Phase 4's implement/test/review loop), deployStatus.ts (Phase 6-7's reconciliation)
   app/           Next.js App Router: page.tsx (list), new/page.tsx (form), actions.ts (Server Actions), api/backlog-items/route.ts (REST)
-scripts/         migrate.ts
+scripts/         migrate.ts, migrate-test.ts, run-orchestrator.ts, sync-deploy-status.ts
 docs/
-  DECISIONS.md   every judgment call, including bugs found while building
+  DECISIONS.md    every judgment call, including bugs found while building
+  DEMO_SCRIPT.md  a full end-to-end walkthrough
 ```
 
 ## Development
