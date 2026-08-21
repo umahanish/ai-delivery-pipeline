@@ -116,19 +116,19 @@ memory before checking it).
 
 ## Phase 1 — Foundations
 
-- [ ] `docker-compose.yml`: Postgres.
-- [ ] `src/db/schema.sql` + `src/db/migrations/`: a `backlog_items` table
+- [x] `docker-compose.yml`: Postgres.
+- [x] `src/db/schema.sql` + `src/db/migrations/`: a `backlog_items` table
       (id, title, description, acceptance_criteria, priority, target_repo,
       status, jira_key, pr_number, pr_url, deploy_status, created_at,
       updated_at) and a `pipeline_events` table (backlog_item_id, event_type,
       detail, occurred_at) for an audit trail of what happened when — the
       UI's status view reads from this, not by re-polling JIRA/GitHub live
       on every page load.
-- [ ] `.env.example`: `DATABASE_URL`, JIRA credentials (reuse
+- [x] `.env.example`: `DATABASE_URL`, JIRA credentials (reuse
       `devops-knowledge-mcp/.env.example`'s JIRA vars as the template),
       `GITHUB_TOKEN`, `ANTHROPIC_API_KEY`, SonarQube/Nexus IQ/Qualys vars
       for the target repo's CI to use.
-- [ ] Basic scaffolding: TypeScript + Node, `package.json`, a test runner
+- [x] Basic scaffolding: TypeScript + Node, `package.json`, a test runner
       (vitest, matching the sibling project).
 
 ## Phase 2 — Sample target repo
@@ -145,22 +145,24 @@ memory before checking it).
 
 ## Phase 3 — Backlog UI
 
-- [ ] Small web app (Next.js or a plain React + Express API — pick one,
+- [x] Small web app (Next.js or a plain React + Express API — pick one,
       note the choice) — a form to submit a backlog item (title,
       description, acceptance criteria, priority, target repo) and a list
       view showing every item's current status, reading from
-      `backlog_items`.
-- [ ] On submit: write the row, then create the JIRA story (reuse the
+      `backlog_items`. Built as Next.js (App Router) — see
+      `docs/DECISIONS.md`.
+- [x] On submit: write the row, then create the JIRA story (reuse the
       JIRA REST API auth pattern from `devops-knowledge-mcp`'s
       `src/connectors/jira/client.ts` — Basic auth with email:apiToken —
       but this project only ever *creates* issues, it doesn't sync them
       back in bulk, so don't port the whole connector, just the auth +
       create-issue call). Store the returned JIRA key on the row.
-- [ ] A visible, explicit "Ready for Dev" action the PM takes on an item
+- [x] A visible, explicit "Ready for Dev" action the PM takes on an item
       (button in the UI, or moving the JIRA story to a specific status) —
       submitting a backlog item does not by itself mean "start
       developing this now." Decide which and document it; either is
-      reasonable, but it must be a deliberate step, not implicit.
+      reasonable, but it must be a deliberate step, not implicit. Built as
+      a button per row (see `docs/DECISIONS.md`).
 
 ## Phase 4 — Orchestrator: the coding agent
 

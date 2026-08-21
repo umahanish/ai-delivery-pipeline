@@ -1,0 +1,23 @@
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: delivery_pipeline
+    # Host port 5433, not 5432 — the sibling devops-knowledge-mcp project's
+    # own docker-compose already binds 5432, and both projects are meant to
+    # be runnable side by side on the same machine.
+    ports:
+      - "5433:5432"
+    volumes:
+      - delivery_pipeline_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d delivery_pipeline"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  delivery_pipeline_pgdata:
