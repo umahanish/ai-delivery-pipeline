@@ -12,7 +12,7 @@ import { claimForDev, logPipelineEvent, markNeedsHuman, markPrOpen, type Backlog
 import type { PullRequestOpener } from "../github/client";
 import { parseGitHubRepo } from "../github/parseRepo";
 import { commitAll, getWorkingDiff, hasUncommittedChanges, pushBranch } from "./git";
-import { prepareWorkspace } from "./workspace";
+import { prepareWorkspace, type Workspace } from "./workspace";
 
 export interface ProcessBacklogItemDeps {
   pool: pg.Pool;
@@ -38,24 +38,28 @@ export async function processBacklogItem(deps: ProcessBacklogItemDeps, item: Bac
     return { outcome: "skipped", reason: "already claimed by another run" };
   }
 
-  const { owner, repo } = parseGitHubRepo(item.targetRepo);
-  const cloneUrl = `https://github.com/${owner}/${repo}.git`;
-  const branchName = `story/${(item.jiraKey ?? item.id).toLowerCase()}`;
-
-  await logPipelineEvent(deps.pool, item.id, "dev_started", branchName);
-
-  const workspace = await prepareWorkspace(cloneUrl, branchName);
-  const story: StorySpec = {
-    title: item.title,
-    description: item.description,
-    acceptanceCriteria: item.acceptanceCriteria,
-    testCommand: deps.testCommand,
-  };
+  let workspace: Workspace | undefined;
+  let roundsAttempted = 0;
 
   try {
+    const { owner, repo } = parseGitHubRepo(item.targetRepo);
+    const cloneUrl = `https://github.com/${owner}/${repo}.git`;
+    const branchName = `story/${(item.jiraKey ?? item.id).toLowerCase()}`;
+
+    await logPipelineEvent(deps.pool, item.id, "dev_started", branchName);
+
+    workspace = await prepareWorkspace(cloneUrl, branchName);
+    const story: StorySpec = {
+      title: item.title,
+      description: item.description,
+      acceptanceCriteria: item.acceptanceCriteria,
+      testCommand: deps.testCommand,
+    };
+
     let lastOutput = "";
 
     for (let round = 1; round <= deps.maxRounds; round++) {
+      roundsAttempted = round;
       const prompt = round === 1 ? buildImplementPrompt(story) : buildFixPrompt(story, lastOutput);
       const implementResult = await deps.agentRunner({ cwd: workspace.dir, prompt, maxTurns: 15 });
       lastOutput = implementResult.resultText;
@@ -73,7 +77,12 @@ export async function processBacklogItem(deps: ProcessBacklogItemDeps, item: Bac
 
       const diff = await getWorkingDiff(workspace.dir);
       const reviewPrompt = buildSelfReviewPrompt(story, diff.slice(0, MAX_DIFF_CHARS));
-      const reviewResult = await deps.agentRunner({ cwd: workspace.dir, prompt: reviewPrompt, maxTurns: 3 });
+      // 3 turns looked sufficient on paper (the diff is embedded directly
+      // in the prompt) but a live run hit that cap anyway — the agent
+      // still explores the repo (CLAUDE.md, surrounding code) before
+      // answering rather than only reading the embedded diff. See
+      // docs/DECISIONS.md.
+      const reviewResult = await deps.agentRunner({ cwd: workspace.dir, prompt: reviewPrompt, maxTurns: 8 });
       const approved = parseReviewVerdict(reviewResult.resultText);
 
       await logPipelineEvent(
@@ -106,8 +115,20 @@ export async function processBacklogItem(deps: ProcessBacklogItemDeps, item: Bac
     await markNeedsHuman(deps.pool, item.id);
     await logPipelineEvent(deps.pool, item.id, "needs_human", lastOutput.slice(0, 2000));
     return { outcome: "needs_human", rounds: deps.maxRounds, lastOutput };
+  } catch (err) {
+    // Belt-and-suspenders beyond the per-round handling above: an
+    // unexpected throw from *anywhere* in the try block (a live run hit
+    // one from the SDK itself before runCodingAgent.ts caught it — see
+    // docs/DECISIONS.md) must never leave the row silently stuck in
+    // in_dev with no explanation, which is exactly the failure mode
+    // CLAUDE.md's Phase 4 "on exhausting retries" requirement exists to
+    // prevent — that intent extends to crashes, not just clean exhaustion.
+    const message = err instanceof Error ? (err.stack ?? err.message) : String(err);
+    await markNeedsHuman(deps.pool, item.id);
+    await logPipelineEvent(deps.pool, item.id, "needs_human", `unexpected error: ${message.slice(0, 2000)}`);
+    return { outcome: "needs_human", rounds: roundsAttempted, lastOutput: message };
   } finally {
-    await workspace.cleanup();
+    await workspace?.cleanup();
   }
 }
 

@@ -366,3 +366,93 @@ as something the orchestrator points at, not something living inside
   overriding for two harmless junk rows. Delete manually if it bothers you:
   `DELETE FROM backlog_items WHERE target_repo = 'acme/widgets';` against
   `DATABASE_URL` (not `TEST_DATABASE_URL`).
+
+## First successful live run — SCRUM-18, and two more bugs it found
+
+- **The retry, this time end to end**: with `TEST_DATABASE_URL` fixed and
+  `ANTHROPIC_API_KEY` supplied, created a new, genuinely code-shaped story
+  (SCRUM-18, "Add GET /widgets/count endpoint" against
+  `delivery-pipeline-sample-app`) via the real `/api/backlog-items`
+  endpoint — not inserted directly — so the whole path (JIRA creation,
+  ready-for-dev, orchestrator claim, isolated clone, implement, self-review,
+  commit, push, PR) ran for real. First attempt crashed (see below); after
+  fixing the cause and resetting the item to `ready_for_dev`, the second
+  attempt succeeded on round 1: [PR #1](https://github.com/umahanish/delivery-pipeline-sample-app/pull/1),
+  correctly placing `/widgets/count` *above* `/widgets/:id` (with a comment
+  explaining why — an Express routing footgun the agent both avoided and
+  flagged), plus tests covering the empty-store and add/delete cases from
+  the acceptance criteria.
+
+- **Bug found: `runCodingAgent.ts` assumed the SDK always yields a
+  `"result"` message, even on failure.** The first live attempt threw
+  `Error: Claude Code returned an error result: Reached maximum number of
+  turns (3)` directly out of `query()`'s async generator — not as a
+  `result` message with `subtype: "error_max_turns"`, which is what the
+  `for await` loop was watching for. Nothing mocked this in tests (the
+  agent boundary is deliberately unmocked-but-untested against the real
+  SDK — see CLAUDE.md's own testing convention), so it was invisible until
+  a real run hit it. The uncaught throw propagated out of
+  `processBacklogItem.ts`'s round loop entirely, past every place that
+  would normally call `markNeedsHuman`, straight out of
+  `scripts/run-orchestrator.ts`'s `main()`, crashing the whole orchestrator
+  process. Fixed by wrapping the `for await` loop in `runCodingAgent.ts` in
+  a try/catch that returns a failed `AgentRunResult` instead of letting the
+  throw escape — with a small best-effort classifier
+  (`classifyThrownAgentError`) so the resulting `subtype` string is still
+  informative in logs, even though nothing switches on its exact value.
+  Added `tests/agent/runCodingAgent.test.ts` (mocking the SDK module
+  itself, the one seam this file exists to wrap) specifically covering:
+  the exact thrown error observed live, an unrecognized thrown error, and
+  the pre-existing "stream ended with no result message" case that was
+  previously a hard `throw` too.
+
+- **Second, broader bug the first one exposed: nothing outside the
+  round-loop's own success/exhaustion paths ever marked an item
+  `needs_human`.** Even after fixing `runCodingAgent.ts`, the same failure
+  mode remains possible from *any* other unexpected throw inside
+  `processBacklogItem.ts`'s try block — `commitAll`, `pushBranch`,
+  `github.createPullRequest`, even `parseGitHubRepo` on a malformed
+  `target_repo` — none of those were ever going to hit `markNeedsHuman`,
+  because that call only ever ran after the `for` loop completed normally
+  (either by returning `pr_opened` or falling through after exhausting
+  `maxRounds`). This is exactly the failure this incident's stuck SCRUM-18
+  row demonstrated: `claimForDev` had already flipped it to `in_dev`, the
+  thrown error skipped every subsequent line, and the row was left with no
+  status update and no `pipeline_events` explanation — silently stuck,
+  which is precisely what CLAUDE.md's Phase 4 "on exhausting retries"
+  requirement exists to prevent. That requirement's intent obviously
+  extends to "crashed" as well as "cleanly exhausted", even though the
+  original checklist item only named the latter. Fixed with a catch-all
+  around the whole try block: any thrown error now calls `markNeedsHuman`,
+  logs a `pipeline_events` row prefixed `unexpected error:` with the
+  captured message/stack, and returns `{ outcome: "needs_human", ... }`
+  instead of propagating — which also means `scripts/run-orchestrator.ts`'s
+  loop over multiple ready items can no longer be aborted by one item's
+  crash. `workspace` is now declared outside the try block (as
+  `Workspace | undefined`) and cleaned up with `workspace?.cleanup()` in
+  `finally`, since a throw can now happen *before* the workspace exists
+  (e.g. an unparseable `target_repo`) as well as after. Covered by two new
+  tests: an unexpected `github.createPullRequest` throw mid-round (asserts
+  `needs_human`, the workspace's `cleanup` still ran, and the
+  `pipeline_events` detail contains "unexpected error"), and a throw before
+  any workspace is created (asserts `prepareWorkspace` was never called and
+  the item still lands on `needs_human` rather than staying `ready_for_dev`
+  forever).
+
+- **Recovering the stuck row itself** used the app's own
+  `markNeedsHuman()`/`logPipelineEvent()` via a one-off script (not raw
+  SQL) to log an honest explanation of the crash, then a second one-off
+  script to reset `status` from `needs_human` back to `ready_for_dev` for
+  the retry — there's no "Retry" button in the UI yet; that resubmit flow
+  wasn't in Phase 4's scope (happy path + a `needs_human` landing state
+  only). Both scripts were deleted immediately after use — this incident's
+  writeup here, plus the `pipeline_events` row itself, is the permanent
+  record, not a script sitting in the repo.
+
+- **Review-pass `maxTurns` raised 3 → 8**: the crashing attempt hit that
+  cap during self-review even though the diff is embedded directly in the
+  prompt (see `buildSelfReviewPrompt`) — the agent still explores the repo
+  (reads `CLAUDE.md`, surrounding code) before answering rather than
+  relying solely on the embedded diff. 3 was a paper estimate that turned
+  out wrong on the very first live run; 8 is still bounded, just less
+  likely to be a false-negative on a genuinely fine review.

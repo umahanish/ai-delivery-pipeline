@@ -235,3 +235,48 @@ describe("processBacklogItem: exhausted retries", () => {
     expect(calls).toBe(1); // one implement attempt, no self-review call since implement never succeeded
   });
 });
+
+describe("processBacklogItem: unexpected crash mid-run", () => {
+  it("marks needs_human instead of leaving the item stuck in_dev when something throws unexpectedly", async () => {
+    // A live run showed runCodingAgent.ts isn't the only thing that can
+    // throw unexpectedly (see docs/DECISIONS.md) — this exercises the
+    // catch-all rather than that specific fixed case, using GitHub as a
+    // stand-in for "some dependency throws instead of rejecting cleanly".
+    const item = await makeReadyItem();
+    const cleanup = vi.fn().mockResolvedValue(undefined);
+    vi.mocked(prepareWorkspace).mockResolvedValueOnce({ dir: "/fake/workspace", branch: "story/proj-1", cleanup });
+
+    const github: PullRequestOpener = {
+      async createPullRequest(): Promise<CreatedPullRequest> {
+        throw new Error("network exploded");
+      },
+    };
+    const agent = scriptedAgent([agentResult({ resultText: "implemented" }), agentResult({ resultText: "VERDICT: APPROVE" })]);
+
+    const outcome = await processBacklogItem(baseDeps(agent, github), item);
+
+    expect(outcome.outcome).toBe("needs_human");
+    if (outcome.outcome === "needs_human") expect(outcome.lastOutput).toContain("network exploded");
+
+    const persisted = await getBacklogItem(pool, item.id);
+    expect(persisted?.status).toBe("needs_human"); // not stuck at in_dev
+    expect(cleanup).toHaveBeenCalledTimes(1); // workspace still cleaned up
+
+    const { rows: events } = await pool.query(`SELECT event_type, detail FROM pipeline_events WHERE backlog_item_id = $1 ORDER BY occurred_at`, [
+      item.id,
+    ]);
+    const needsHumanEvent = events.find((e) => e.event_type === "needs_human");
+    expect(needsHumanEvent?.detail).toContain("unexpected error");
+  });
+
+  it("marks needs_human even when the crash happens before a workspace exists (e.g. an unparseable target_repo)", async () => {
+    const item = await makeReadyItem({ targetRepo: "not a valid repo string///" });
+
+    const outcome = await processBacklogItem(baseDeps(scriptedAgent([agentResult()]), fakeGitHub()), item);
+
+    expect(outcome.outcome).toBe("needs_human");
+    const persisted = await getBacklogItem(pool, item.id);
+    expect(persisted?.status).toBe("needs_human");
+    expect(prepareWorkspace).not.toHaveBeenCalled();
+  });
+});

@@ -16,16 +16,20 @@ is a separate system with its own repo and lifecycle.
 
 **Built so far: Phase 1 (foundations), Phase 2 (sample target repo —
 [`delivery-pipeline-sample-app`](https://github.com/umahanish/delivery-pipeline-sample-app)),
-Phase 3 (backlog UI → JIRA), and Phase 4 (the coding agent orchestrator).**
+Phase 3 (backlog UI → JIRA), and Phase 4 (the coding agent orchestrator) —
+proven end to end with a real live run, not just mocked tests.**
 Submitting a backlog item through the web UI creates a real JIRA story;
 marking it "ready for dev" and running `npm run orchestrator` picks it up,
 runs an isolated Claude Agent SDK implement/test/self-review loop against
-the sample repo, and opens a real PR for a human to review. Phase 5+ (CI
-checks running *on* that PR, and the staging deploy + Qualys scan after
-merge) is not started — see `CLAUDE.md` for the full roadmap and
-`docs/DECISIONS.md` for the reasoning behind every choice made so far,
-including several real bugs (and one live-run operational incident) caught
-by testing this for real rather than trusting green tests alone.
+the sample repo, and opens a real PR for a human to review — see
+[SCRUM-18 → PR #1](https://github.com/umahanish/delivery-pipeline-sample-app/pull/1)
+for the first one. Phase 5+ (CI checks running *on* that PR, and the
+staging deploy + Qualys scan after merge) is not started — see
+`CLAUDE.md` for the full roadmap and `docs/DECISIONS.md` for the
+reasoning behind every choice made so far, including several real bugs
+(two live-run crashes and their fixes, a test suite that was silently
+truncating the real dev database) caught by testing this for real rather
+than trusting green tests alone.
 
 ## End-to-end pipeline
 

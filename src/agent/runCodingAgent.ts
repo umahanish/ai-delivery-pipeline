@@ -34,36 +34,58 @@ export type AgentRunner = (input: RunCodingAgentInput) => Promise<AgentRunResult
 export const runCodingAgent: AgentRunner = async (input) => {
   let finalResult: SDKResultMessage | undefined;
 
-  for await (const message of query({
-    prompt: input.prompt,
-    options: {
-      cwd: input.cwd,
-      maxTurns: input.maxTurns,
-      maxBudgetUsd: input.maxBudgetUsd,
-      // Genuinely unattended (no human present to click an approval
-      // prompt) — the safety margin here comes from the isolated
-      // workspace + branch-only writes + mandatory human PR review
-      // upstream and downstream of this call, not from prompting the
-      // agent for permission mid-run. allowDangerouslySkipPermissions is
-      // the SDK's own required opt-in acknowledgment for this mode.
-      permissionMode: "bypassPermissions",
-      allowDangerouslySkipPermissions: true,
-      tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob"],
-      // Belt-and-suspenders on top of bypassPermissions: even with
-      // permission checks off, don't hand the agent tools it has no
-      // legitimate reason to use inside its own scratch clone — pushing
-      // and remote config changes are the orchestrator's job, done after
-      // the agent's turn, not the agent's own.
-      disallowedTools: ["Bash(git push*)", "Bash(git config*)", "Bash(rm -rf *)"],
-    },
-  })) {
-    if (message.type === "result") {
-      finalResult = message;
+  try {
+    for await (const message of query({
+      prompt: input.prompt,
+      options: {
+        cwd: input.cwd,
+        maxTurns: input.maxTurns,
+        maxBudgetUsd: input.maxBudgetUsd,
+        // Genuinely unattended (no human present to click an approval
+        // prompt) — the safety margin here comes from the isolated
+        // workspace + branch-only writes + mandatory human PR review
+        // upstream and downstream of this call, not from prompting the
+        // agent for permission mid-run. allowDangerouslySkipPermissions is
+        // the SDK's own required opt-in acknowledgment for this mode.
+        permissionMode: "bypassPermissions",
+        allowDangerouslySkipPermissions: true,
+        tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob"],
+        // Belt-and-suspenders on top of bypassPermissions: even with
+        // permission checks off, don't hand the agent tools it has no
+        // legitimate reason to use inside its own scratch clone — pushing
+        // and remote config changes are the orchestrator's job, done after
+        // the agent's turn, not the agent's own.
+        disallowedTools: ["Bash(git push*)", "Bash(git config*)", "Bash(rm -rf *)"],
+      },
+    })) {
+      if (message.type === "result") {
+        finalResult = message;
+      }
     }
+  } catch (err) {
+    // A live run showed the SDK throws (rather than yielding a "result"
+    // message) for at least error_max_turns — confirmed via
+    // docs/DECISIONS.md's live-run writeup, not assumed from docs. Without
+    // this catch, that throw propagates out of the bounded implement/
+    // review retry loop in processBacklogItem.ts entirely, crashing the
+    // whole orchestrator run instead of being treated as one failed round.
+    return {
+      success: false,
+      resultText: err instanceof Error ? err.message : String(err),
+      totalCostUsd: 0,
+      numTurns: 0,
+      subtype: classifyThrownAgentError(err),
+    };
   }
 
   if (!finalResult) {
-    throw new Error("Agent query produced no result message (stream ended without one)");
+    return {
+      success: false,
+      resultText: "Agent query produced no result message (stream ended without one).",
+      totalCostUsd: 0,
+      numTurns: 0,
+      subtype: "error_no_result",
+    };
   }
 
   if (finalResult.subtype === "success") {
@@ -84,3 +106,11 @@ export const runCodingAgent: AgentRunner = async (input) => {
     subtype: finalResult.subtype,
   };
 };
+
+/** Best-effort label from a thrown SDK error's message — used only for logging (see processBacklogItem.ts), never switched on, so an unmatched case degrading to "error_thrown" is harmless. */
+function classifyThrownAgentError(err: unknown): string {
+  const message = err instanceof Error ? err.message : String(err);
+  if (/maximum number of turns/i.test(message)) return "error_max_turns";
+  if (/budget/i.test(message)) return "error_max_budget_usd";
+  return "error_thrown";
+}
