@@ -196,11 +196,14 @@ memory before checking it).
 
 ## Phase 5 — CI: automated checks on the PR
 
-- [ ] GitHub Actions workflow on the sample repo, triggered on PR: run
+- [x] GitHub Actions workflow on the sample repo, triggered on PR: run
       tests, a SonarQube scan, a Nexus IQ scan. All three are required
       status checks (branch protection, set from Phase 2, gets these
-      three added now that they exist).
-- [ ] These are quality/security gates, not another chance to write code —
+      three added now that they exist). (SonarQube is a real SonarCloud
+      analysis; "Nexus IQ" is a real Trivy dependency scan standing in for
+      it, since no Nexus IQ license/instance exists in this environment —
+      see docs/DECISIONS.md.)
+- [x] These are quality/security gates, not another chance to write code —
       if a scan fails, the PR sits waiting for a human, it doesn't trigger
       another agent auto-fix loop. (A future project could build that;
       this brief doesn't, to keep the human-approval boundary meaningful —

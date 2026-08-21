@@ -456,3 +456,74 @@ as something the orchestrator points at, not something living inside
   relying solely on the embedded diff. 3 was a paper estimate that turned
   out wrong on the very first live run; 8 is still bounded, just less
   likely to be a false-negative on a genuinely fine review.
+
+## Phase 5 — CI on the sample repo's PRs
+
+- **Neither SonarQube nor Nexus IQ has real credentials anywhere in this
+  environment** — both `.env` files (this project's and the sibling
+  `devops-knowledge-mcp`'s, which built read connectors for both) have
+  those fields blank. Since `delivery-pipeline-sample-app` is a *public*
+  repo, wiring in a real corporate instance of either would also mean that
+  server's URL and a live token get used by a public-repo Actions
+  workflow — worth surfacing before choosing an approach rather than
+  guessing, so this was asked rather than assumed.
+- **SonarQube → a real SonarCloud token, supplied live.** Given only the
+  token (no URL), calling `GET /api/organizations/search?member=true`
+  against `sonarcloud.io` with it (Basic auth, token as username) resolved
+  the organization automatically: `umahanish`, personal, FREE tier, linked
+  to the same GitHub account this whole project lives under — avoided a
+  second round-trip asking for the org key. `GET
+  /api/projects/search?organization=umahanish` then showed both
+  `ai-delivery-pipeline` and `delivery-pipeline-sample-app` already
+  provisioned as SonarCloud projects (the org's GitHub App integration
+  auto-imports repos) — `ai-delivery-pipeline` even had a same-day
+  automatic-analysis timestamp from a prior push in this session, evidence
+  the GitHub App's background analysis was already active account-wide
+  before any workflow file was written here.
+- **Nexus IQ → Trivy, a real substitute, not a stub.** Nexus IQ itself is
+  Sonatype's commercial SCA product; there's no free/self-hostable
+  equivalent to stand up in CI the way there is for SonarQube (SonarCloud).
+  Trivy (`aquasecurity/trivy-action`) does the same *class* of job —
+  filesystem/dependency vulnerability scanning, real CVE data, a real
+  pass/fail gate, SARIF results uploaded to GitHub's Security tab — for
+  free. Labeled as a substitute everywhere it appears (workflow comments,
+  README, this file), not silently presented as if it were Nexus IQ
+  itself, consistent with how this project documents every other
+  simplification.
+- **Action versions verified live, not recalled**: `WebFetch` against the
+  actual GitHub Marketplace pages for `SonarSource/sonarqube-scan-action`
+  and `aquasecurity/trivy-action` before writing the workflow, the same
+  discipline used for the Agent SDK's types in Phase 4 — a stale
+  recalled action name/version is exactly the kind of thing that fails
+  silently until it doesn't.
+- **Validated with a real PR, not just YAML review**: pushing the
+  workflow straight to `main` was rejected by `delivery-pipeline-sample-app`'s
+  own branch protection (`enforce_admins: true` — no exceptions, including
+  for adding the CI that protection itself will later require). Opened
+  [PR #2](https://github.com/umahanish/delivery-pipeline-sample-app/pull/2)
+  instead, which doubles as the first live run of the new workflow: `test`,
+  `sonarqube`, and `dependency-scan` (Trivy) all passed for real on the
+  first try, including a genuine SonarCloud quality-gate `OK` (checked via
+  `GET /api/qualitygates/project_status`) — no automatic-analysis-vs-CI-analysis
+  conflict, despite that being a real risk this org's GitHub App
+  integration could have triggered.
+- **`test`, `sonarqube`, and `dependency-scan` (the three job names) added
+  as required status checks** via `PUT
+  .../branches/main/protection` — the `-f` form of `gh api` couldn't
+  express the nested boolean/array/int shape branch protection's schema
+  wants (kept sending strings), a JSON body via `--input` did.
+- **Side effect worth knowing about**: adding required status checks
+  applies to every PR against `main`, including the already-open
+  [PR #1](https://github.com/umahanish/delivery-pipeline-sample-app/pull/1)
+  (SCRUM-18, from the first successful Phase 4 live run) — its branch
+  predates the CI workflow, so it now shows `mergeStateStatus: BLOCKED`
+  with no checks at all, not because anything about it regressed. It needs
+  `main` merged/rebased into it (to pick up `.github/workflows/ci.yml`)
+  before those checks can run and it can merge. Left as-is rather than
+  fixed unasked, since it's a real, human-reviewable PR — not something to
+  quietly rewrite.
+- **PR #2 itself is also correctly blocked on human review**
+  (`reviewDecision: REVIEW_REQUIRED`) — the same mandatory approval gate
+  applies to CI-infrastructure PRs opened during this session as to
+  agent-generated ones. Left for the user to review and merge; not
+  self-approved.
