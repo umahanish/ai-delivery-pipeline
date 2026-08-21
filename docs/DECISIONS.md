@@ -319,3 +319,50 @@ as something the orchestrator points at, not something living inside
   code-shaped story (e.g. "add a GET /widgets/count endpoint") would be a
   more meaningful first end-to-end demonstration once a live run is
   retried with the timeout fix above.
+
+## Test/dev database collision — a second real incident
+
+- **What happened**: `tests/helpers/db.ts` pointed `getTestPool()` at
+  `DATABASE_URL` — the same Postgres database the dev server and the live
+  orchestrator use. `resetDb()` runs `TRUNCATE pipeline_events,
+  backlog_items RESTART IDENTITY CASCADE` in a `beforeEach` before nearly
+  every test. Running `npm test` (to verify the Phase 4 work above, after
+  the orphaned-process incident) silently wiped the real SCRUM-17
+  `backlog_items` row — including its `needs_human` status and the
+  `pipeline_events` trail documenting the previous incident — leaving only
+  whatever the *last* test in the run happened to insert. The JIRA story
+  itself (SCRUM-17, an external system) was untouched; only the local
+  tracking row was lost.
+- **Why this kept happening even with green tests**: nothing about a
+  passing `npm test` run signals data loss — the tests pass precisely
+  *because* they get a clean, truncated table to work with. The danger is
+  invisible from inside the test suite; it only shows up as missing data
+  in the app afterward.
+- **Fix**: a dedicated `TEST_DATABASE_URL`, a separate Postgres database
+  (`delivery_pipeline_test`, same instance, created once via `createdb`),
+  applied migrations via a new `scripts/migrate-test.ts` /
+  `npm run migrate:test`. `tests/helpers/db.ts` now throws immediately if
+  `TEST_DATABASE_URL` is unset *or* equals `DATABASE_URL`, so this class of
+  mistake fails loudly on the very first test run instead of silently
+  succeeding against the wrong database.
+- **A second bug found while building the fix**: `scripts/migrate.ts`
+  originally called its own `main()` unconditionally at module scope.
+  Refactoring it to export a reusable `runMigrations()` (so
+  `migrate-test.ts` could call it against `TEST_DATABASE_URL`) meant
+  *importing* `migrate.ts` also silently ran its `DATABASE_URL` migration
+  as a side effect — confirmed by `npm run migrate:test`'s own output
+  showing both "Already up to date." (the dev DB, from the import) and
+  "Applying 0001_init.sql..." (the test DB, from the actual call).
+  Harmless here since migrations are idempotent and guarded by a
+  `schema_migrations` table, but it's the same category of mistake as the
+  collision above — a script doing more than its caller asked for, silently.
+  Fixed with an explicit entrypoint guard
+  (`process.argv[1] === fileURLToPath(import.meta.url)`) so importing the
+  module for its function never triggers its CLI behavior.
+- **Not yet cleaned up**: two leftover test-fixture rows
+  (`target_repo = 'acme/widgets'`, from before the fix) remain in the real
+  dev database — deleting them was blocked by this environment's auto-mode
+  permission classifier as a destructive DB operation, and wasn't worth
+  overriding for two harmless junk rows. Delete manually if it bothers you:
+  `DELETE FROM backlog_items WHERE target_repo = 'acme/widgets';` against
+  `DATABASE_URL` (not `TEST_DATABASE_URL`).

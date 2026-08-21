@@ -3,6 +3,9 @@
 // across repos (see CLAUDE.md) but deliberately kept identical in shape.
 //
 // Usage: npm run migrate
+// Exports runMigrations() so scripts/migrate-test.ts can reuse it against
+// TEST_DATABASE_URL instead — see docs/DECISIONS.md on why tests need a
+// separate database from dev.
 
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
@@ -15,12 +18,7 @@ const { Client } = pg;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS_DIR = path.join(__dirname, "..", "src", "db", "migrations");
 
-async function main(): Promise<void> {
-  const databaseUrl = process.env.DATABASE_URL;
-  if (!databaseUrl) {
-    throw new Error("DATABASE_URL is not set (see .env.example)");
-  }
-
+export async function runMigrations(databaseUrl: string): Promise<void> {
   const client = new Client({ connectionString: databaseUrl });
   await client.connect();
 
@@ -65,7 +63,19 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+async function main(): Promise<void> {
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!databaseUrl) {
+    throw new Error("DATABASE_URL is not set (see .env.example)");
+  }
+  await runMigrations(databaseUrl);
+}
+
+// Guarded so scripts/migrate-test.ts can import runMigrations() without
+// also triggering this file's own DATABASE_URL run as a side effect.
+if (path.resolve(process.argv[1] ?? "") === path.resolve(fileURLToPath(import.meta.url))) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}

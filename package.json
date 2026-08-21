@@ -10,6 +10,7 @@
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "migrate": "tsx scripts/migrate.ts",
+    "migrate:test": "tsx scripts/migrate-test.ts",
     "orchestrator": "tsx scripts/run-orchestrator.ts",
     "test": "vitest run",
     "test:watch": "vitest"

@@ -87,10 +87,17 @@ cd ai-delivery-pipeline
 npm install
 cp .env.example .env
 
-docker compose up -d postgres   # Postgres on :5433 (not 5432 — see docker-compose.yml)
-npm run migrate                 # applies src/db/migrations/
-npm test                        # 22 tests
+docker compose up -d postgres                                       # Postgres on :5433 (not 5432 — see docker-compose.yml)
+npm run migrate                                                     # applies src/db/migrations/ to the dev DB
+docker compose exec postgres createdb -U postgres delivery_pipeline_test  # one-time: dedicated test DB
+npm run migrate:test                                                # applies the same migrations there
+npm test                                                             # 50 tests — runs against TEST_DATABASE_URL only
 ```
+
+`npm test` truncates `backlog_items`/`pipeline_events` between tests — it
+deliberately runs against a **separate** `TEST_DATABASE_URL`, never
+`DATABASE_URL`, so it can never wipe real submissions. `tests/helpers/db.ts`
+refuses to start if the two URLs match. See `docs/DECISIONS.md`.
 
 ### JIRA setup (required for the UI to actually create stories)
 
