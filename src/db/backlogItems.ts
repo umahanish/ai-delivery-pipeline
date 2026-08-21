@@ -125,6 +125,43 @@ export async function listBacklogItems(pool: pg.Pool): Promise<BacklogItem[]> {
   return rows.map(mapRow);
 }
 
+/** What Phase 4's orchestrator polls for — items a PM explicitly marked ready and nothing has picked up yet. */
+export async function listReadyForDev(pool: pg.Pool): Promise<BacklogItem[]> {
+  const { rows } = await pool.query<BacklogItemRow>(
+    `SELECT * FROM backlog_items WHERE status = 'ready_for_dev' ORDER BY created_at ASC`,
+  );
+  return rows.map(mapRow);
+}
+
+/**
+ * Only transitions ready_for_dev -> in_dev, atomically (the UPDATE's WHERE
+ * clause is the compare-and-swap) — returns null if another orchestrator
+ * run already claimed this item, so two runs can never both start working
+ * on the same story.
+ */
+export async function claimForDev(pool: pg.Pool, id: string): Promise<BacklogItem | null> {
+  const { rows } = await pool.query<BacklogItemRow>(
+    `UPDATE backlog_items SET status = 'in_dev', updated_at = now()
+     WHERE id = $1 AND status = 'ready_for_dev'
+     RETURNING *`,
+    [id],
+  );
+  const row = rows[0];
+  return row ? mapRow(row) : null;
+}
+
+export async function markPrOpen(pool: pg.Pool, id: string, prNumber: number, prUrl: string): Promise<void> {
+  await pool.query(
+    `UPDATE backlog_items SET status = 'pr_open', pr_number = $1, pr_url = $2, updated_at = now() WHERE id = $3`,
+    [prNumber, prUrl, id],
+  );
+}
+
+/** The agent exhausted its retry budget without converging — see CLAUDE.md Constraints. Never left silently stuck in 'in_dev'. */
+export async function markNeedsHuman(pool: pg.Pool, id: string): Promise<void> {
+  await pool.query(`UPDATE backlog_items SET status = 'needs_human', updated_at = now() WHERE id = $1`, [id]);
+}
+
 export async function getBacklogItem(pool: pg.Pool, id: string): Promise<BacklogItem | null> {
   const { rows } = await pool.query<BacklogItemRow>(`SELECT * FROM backlog_items WHERE id = $1`, [id]);
   const row = rows[0];

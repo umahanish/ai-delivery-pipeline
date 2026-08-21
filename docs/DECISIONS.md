@@ -210,3 +210,112 @@ as something the orchestrator points at, not something living inside
   an earlier approval). CI-check requirements (SonarQube, Nexus IQ, tests)
   will be added to this same rule once Phase 5 builds them — not before,
   since GitHub rejects requiring a status check that has never reported.
+
+## Phase 4 — the coding agent
+
+- **Claude Agent SDK API surface verified against the installed package's
+  actual `.d.ts`, not the public docs site**: a WebFetch of
+  `code.claude.com/docs/en/agent-sdk/typescript` (the `claude-api` skill
+  explicitly doesn't cover this SDK — it's a separate product) returned
+  message type names (`SDKTextMessage`, `SDKCostMessage`,
+  `SDKControlFinalResponse`) that don't exist anywhere in the real
+  `SDKMessage` union once the package was actually installed and its
+  `sdk.d.ts` inspected directly. Writing `runCodingAgent.ts` against the
+  summarized doc instead of the real types would have failed to compile,
+  or worse, silently misread which field carries the final result. Ground
+  truth: `SDKResultMessage = SDKResultSuccess | SDKResultError`,
+  discriminated by `subtype`.
+
+- **`permissionMode: 'bypassPermissions'`, not a default/prompting mode**:
+  this genuinely runs unattended — there's no human present to click an
+  approval prompt mid-session, so the interactive modes don't apply. The
+  safety margin comes from what surrounds the call (isolated workspace,
+  branch-only writes, mandatory human PR review before merge — see
+  Constraints), not from asking the agent for permission mid-run.
+  `allowDangerouslySkipPermissions: true` is the SDK's own required
+  acknowledgment for this. `disallowedTools` additionally blocks
+  `git push`/`git config`/`rm -rf *` as belt-and-suspenders — the
+  orchestrator does pushing itself, after the agent's turn, not the agent.
+
+- **Fresh clone chosen over `git worktree`** (which `CLAUDE.md`'s
+  Architecture section names): a fresh clone into its own scratch
+  directory already satisfies every isolation property the brief cares
+  about — own directory, own branch, never touches a shared checkout —
+  without needing a persistent shared bare repo to add worktrees against.
+  Simpler mechanism, same intent.
+
+- **One combined round budget (default 3), not two separate ones**:
+  `CLAUDE.md`'s Constraints describe "the implement → test → fix cycle and
+  the self-review → fix cycle each need an explicit max iteration count" —
+  read literally, that's two independent budgets, which could mean up to
+  9 agent invocations for one story. Simplified to one counter covering
+  both (an implement failure consumes a round, so does a review
+  rejection) — bounds real time and API cost for a demo/reference
+  pipeline more predictably. Flagged here as a deliberate simplification
+  of what the brief technically said, not a silent deviation.
+
+- **The orchestrator independently re-runs verification instead of trusting
+  the agent's own success claim**: after an agent turn reports success,
+  `hasUncommittedChanges()` checks whether anything actually changed
+  before proceeding — "trust but verify" applied to the agent the same way
+  it's applied to any subagent's report.
+
+- **Self-review verdict is a literal `VERDICT: APPROVE` /
+  `VERDICT: REQUEST_CHANGES` line, parsed by exact string match on the
+  *last* occurrence** — not sentiment analysis over free-form review
+  prose. Prose matching would false-positive on a review that merely
+  *mentions* "approve" while explaining why it isn't approving, and
+  false-negative on one that approves in different words. No clear
+  verdict at all is treated as not-approved — erring conservative, never
+  defaulting to merge-worthy on an ambiguous signal.
+
+- **A real operational incident during the first live test run against a
+  real story (SCRUM-17), worth recording in full**: the live-test command
+  wrapped `npm run orchestrator` in a shell-level `timeout 280`, inside a
+  backgrounded Bash tool call. The Claude Agent SDK's `query()` spawns its
+  own nested Claude Code CLI subprocess tree; on Windows, `SIGTERM` sent to
+  a parent process does not reliably propagate down that subprocess tree.
+  What actually happened: the outer `timeout` fired and killed the
+  `tsx scripts/run-orchestrator.ts` parent process — the log stopped mid-run
+  with no outcome ever printed — while the agent's own spawned subprocesses
+  (confirmed via `Get-Process`: several `claude.exe` processes, one with
+  380+ seconds of accumulated CPU time) kept running **orphaned**,
+  disconnected from anything that would capture their result. The
+  workspace directory (never cleaned up, since `processBacklogItem`'s
+  `finally` block never ran) showed a completed `git clone` and a full
+  `npm install` — real work had happened — but no commit, no PR, and
+  nothing written back to Postgres.
+  - **Root cause was the *test harness*, not `processBacklogItem.ts`
+    itself.** The function's own bounds (`maxTurns`, `maxRounds`) are
+    real and were never at risk of running unboundedly — the problem was
+    wrapping an already-bounded async operation in a coarse, unaware
+    external `timeout` that could sever the parent from its own child
+    without either finishing cleanly or actually stopping the work.
+  - **The orphaned processes went idle (flat CPU across a real 3-second
+    sample) before this was caught** — likely because `query()`'s own
+    `maxTurns`/`maxBudgetUsd` bounds eventually stopped them on their own,
+    consistent with those bounds working as designed even when the
+    *tracking* of the run was lost.
+  - Terminating the orphaned processes directly was attempted and blocked
+    by this environment's auto-mode permission classifier (bulk-killing
+    processes named `claude.exe` is reasonably treated as high-risk to
+    allow automatically) — left for the user to check/end manually if
+    desired, rather than working around the block.
+  - The stuck `backlog_items` row was set to `needs_human` (not reset to
+    `ready_for_dev`) specifically to avoid a second unsupervised live run
+    compounding the same risk, with the full explanation logged to
+    `pipeline_events` rather than just silently changing its status.
+  - **Fix for next time**: don't wrap a live `query()` invocation in an
+    external process-level timeout on Windows. Either let it run to its
+    own natural (bounded) completion, or use the SDK's own
+    `options.abortController` — passed *into* the same process that owns
+    the async generator — which the SDK is actually designed to honor,
+    instead of trying to kill the process tree from outside.
+
+- **First real live run's task-fit concern was correct going in**:
+  SCRUM-17 ("create Manual Test case review based on the SonarQube
+  report") was flagged before this run as a poor fit for an autonomous
+  code-implementation agent against a REST API sample app — a genuine
+  code-shaped story (e.g. "add a GET /widgets/count endpoint") would be a
+  more meaningful first end-to-end demonstration once a live run is
+  retried with the timeout fix above.

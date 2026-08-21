@@ -169,25 +169,28 @@ memory before checking it).
 
 ## Phase 4 — Orchestrator: the coding agent
 
-- [ ] Poll (or webhook, matching the sibling project's pattern) for
+- [x] Poll (or webhook, matching the sibling project's pattern) for
       backlog items whose JIRA story entered the "ready" state.
-- [ ] For each: create an isolated git worktree on a new branch in the
-      Phase 2 sample repo, named from the JIRA key.
-- [ ] Invoke the Claude Agent SDK with the story's title/description/
+- [x] For each: create an isolated git worktree on a new branch in the
+      Phase 2 sample repo, named from the JIRA key. (Implemented as a
+      fresh clone into its own scratch directory rather than a
+      `git worktree` — same isolation properties, simpler mechanism; see
+      docs/DECISIONS.md.)
+- [x] Invoke the Claude Agent SDK with the story's title/description/
       acceptance criteria plus the target repo's own context file as the
       prompt. Implementation loop: agent edits, runs the repo's own test
       command, iterates up to the bounded retry limit (see Constraints).
-- [ ] Self-review pass: a second agent invocation reviewing the diff
+- [x] Self-review pass: a second agent invocation reviewing the diff
       against the acceptance criteria (this can be a genuinely small,
       focused prompt — it doesn't need its own framework). If it flags
       something, loop back into the fix cycle, same bounded retry limit.
-- [ ] On success: commit, push, open a PR via the GitHub API, write the PR
+- [x] On success: commit, push, open a PR via the GitHub API, write the PR
       number/URL back onto the `backlog_items` row, log a
       `pipeline_events` entry.
-- [ ] On exhausting retries without converging: mark the item
+- [x] On exhausting retries without converging: mark the item
       `needs-human` with the last agent output attached, don't leave it
       silently stuck with no explanation.
-- [ ] Tests for this phase mock the agent invocation (no real API calls in
+- [x] Tests for this phase mock the agent invocation (no real API calls in
       `npm test`), same convention as every connector in the sibling
       project.
 

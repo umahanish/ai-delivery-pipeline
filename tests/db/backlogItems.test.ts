@@ -1,11 +1,15 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import {
+  claimForDev,
   getBacklogItem,
   insertBacklogItem,
   listBacklogItems,
+  listReadyForDev,
   logPipelineEvent,
   markJiraCreated,
   markJiraFailed,
+  markNeedsHuman,
+  markPrOpen,
   markReadyForDev,
 } from "../../src/db/backlogItems";
 import { getTestPool, resetDb } from "../helpers/db";
@@ -107,5 +111,69 @@ describe("logPipelineEvent", () => {
 
     const { rows } = await pool.query(`SELECT event_type, detail FROM pipeline_events WHERE backlog_item_id = $1`, [item.id]);
     expect(rows).toEqual([{ event_type: "jira_story_created", detail: "PROJ-1" }]);
+  });
+});
+
+describe("listReadyForDev", () => {
+  it("only returns items in ready_for_dev status, oldest first", async () => {
+    const a = await insertBacklogItem(pool, { ...sampleInput, title: "A" });
+    await markJiraCreated(pool, a.id, "PROJ-1", "https://x/PROJ-1");
+    await markReadyForDev(pool, a.id);
+
+    const b = await insertBacklogItem(pool, { ...sampleInput, title: "B" }); // still just 'submitted'
+
+    const ready = await listReadyForDev(pool);
+    expect(ready.map((i) => i.id)).toEqual([a.id]);
+    expect(ready.map((i) => i.id)).not.toContain(b.id);
+  });
+});
+
+describe("claimForDev", () => {
+  it("transitions ready_for_dev -> in_dev", async () => {
+    const item = await insertBacklogItem(pool, sampleInput);
+    await markJiraCreated(pool, item.id, "PROJ-1", "https://x/PROJ-1");
+    await markReadyForDev(pool, item.id);
+
+    const claimed = await claimForDev(pool, item.id);
+    expect(claimed?.status).toBe("in_dev");
+  });
+
+  it("returns null on a second claim attempt — prevents two orchestrator runs from both picking up the same item", async () => {
+    const item = await insertBacklogItem(pool, sampleInput);
+    await markJiraCreated(pool, item.id, "PROJ-1", "https://x/PROJ-1");
+    await markReadyForDev(pool, item.id);
+
+    const firstClaim = await claimForDev(pool, item.id);
+    const secondClaim = await claimForDev(pool, item.id);
+
+    expect(firstClaim?.status).toBe("in_dev");
+    expect(secondClaim).toBeNull();
+  });
+
+  it("returns null for an item that was never marked ready", async () => {
+    const item = await insertBacklogItem(pool, sampleInput);
+    expect(await claimForDev(pool, item.id)).toBeNull();
+  });
+});
+
+describe("markPrOpen", () => {
+  it("sets status, pr_number, and pr_url", async () => {
+    const item = await insertBacklogItem(pool, sampleInput);
+    await markPrOpen(pool, item.id, 42, "https://github.com/acme/widgets/pull/42");
+
+    const updated = await getBacklogItem(pool, item.id);
+    expect(updated?.status).toBe("pr_open");
+    expect(updated?.prNumber).toBe(42);
+    expect(updated?.prUrl).toBe("https://github.com/acme/widgets/pull/42");
+  });
+});
+
+describe("markNeedsHuman", () => {
+  it("sets status to needs_human", async () => {
+    const item = await insertBacklogItem(pool, sampleInput);
+    await markNeedsHuman(pool, item.id);
+
+    const updated = await getBacklogItem(pool, item.id);
+    expect(updated?.status).toBe("needs_human");
   });
 });
