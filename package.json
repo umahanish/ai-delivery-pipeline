@@ -12,6 +12,7 @@
     "migrate": "tsx scripts/migrate.ts",
     "migrate:test": "tsx scripts/migrate-test.ts",
     "orchestrator": "tsx scripts/run-orchestrator.ts",
+    "sync-deploy-status": "tsx scripts/sync-deploy-status.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },

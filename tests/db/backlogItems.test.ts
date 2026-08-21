@@ -4,10 +4,15 @@ import {
   getBacklogItem,
   insertBacklogItem,
   listBacklogItems,
+  listMerged,
+  listPrOpen,
   listReadyForDev,
   logPipelineEvent,
+  markDeployed,
+  markDeployFailed,
   markJiraCreated,
   markJiraFailed,
+  markMerged,
   markNeedsHuman,
   markPrOpen,
   markReadyForDev,
@@ -175,5 +180,62 @@ describe("markNeedsHuman", () => {
 
     const updated = await getBacklogItem(pool, item.id);
     expect(updated?.status).toBe("needs_human");
+  });
+});
+
+describe("listPrOpen", () => {
+  it("returns only pr_open items, oldest first", async () => {
+    const other = await insertBacklogItem(pool, sampleInput); // stays 'submitted'
+    const prOpen = await insertBacklogItem(pool, sampleInput);
+    await markPrOpen(pool, prOpen.id, 1, "https://github.com/acme/widgets/pull/1");
+
+    const items = await listPrOpen(pool);
+    expect(items.map((i) => i.id)).toEqual([prOpen.id]);
+    expect(items.map((i) => i.id)).not.toContain(other.id);
+  });
+});
+
+describe("markMerged", () => {
+  it("sets status to merged and deploy_status to pending", async () => {
+    const item = await insertBacklogItem(pool, sampleInput);
+    await markPrOpen(pool, item.id, 1, "https://github.com/acme/widgets/pull/1");
+    await markMerged(pool, item.id);
+
+    const updated = await getBacklogItem(pool, item.id);
+    expect(updated?.status).toBe("merged");
+    expect(updated?.deployStatus).toBe("pending");
+  });
+});
+
+describe("listMerged", () => {
+  it("returns only merged items", async () => {
+    const merged = await insertBacklogItem(pool, sampleInput);
+    await markPrOpen(pool, merged.id, 1, "https://github.com/acme/widgets/pull/1");
+    await markMerged(pool, merged.id);
+    const notMerged = await insertBacklogItem(pool, sampleInput);
+    await markPrOpen(pool, notMerged.id, 2, "https://github.com/acme/widgets/pull/2");
+
+    const items = await listMerged(pool);
+    expect(items.map((i) => i.id)).toEqual([merged.id]);
+  });
+});
+
+describe("markDeployed / markDeployFailed", () => {
+  it("markDeployed sets status and deploy_status to deployed", async () => {
+    const item = await insertBacklogItem(pool, sampleInput);
+    await markDeployed(pool, item.id);
+
+    const updated = await getBacklogItem(pool, item.id);
+    expect(updated?.status).toBe("deployed");
+    expect(updated?.deployStatus).toBe("deployed");
+  });
+
+  it("markDeployFailed sets status and deploy_status to failed", async () => {
+    const item = await insertBacklogItem(pool, sampleInput);
+    await markDeployFailed(pool, item.id);
+
+    const updated = await getBacklogItem(pool, item.id);
+    expect(updated?.status).toBe("failed");
+    expect(updated?.deployStatus).toBe("failed");
   });
 });

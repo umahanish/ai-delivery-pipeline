@@ -527,3 +527,103 @@ as something the orchestrator points at, not something living inside
   applies to CI-infrastructure PRs opened during this session as to
   agent-generated ones. Left for the user to review and merge; not
   self-approved.
+
+## Phase 6 — deploy to staging + a Qualys-substitute scan
+
+- **Deploy target: Render.com free tier**, chosen the same way as
+  Phase 5's SonarCloud/Nexus IQ decision — asked rather than assumed,
+  since "the simplest deployment target" (CLAUDE.md's own phrasing) still
+  requires an actual account somewhere, and account creation is something
+  this session won't do on the user's behalf. A real Render API token was
+  supplied live. `GET /v1/owners` resolved the account
+  (`tea-da48e7jl550s73b73lqg`, "Anthropic Training") without needing to
+  ask for it separately — same schema-discovery-via-the-real-API instinct
+  as Phase 5's SonarCloud org lookup.
+- **Render's Create Service API shape wasn't documented anywhere
+  fetchable** (the OpenAPI reference URL 404'd, and a guessed spec ID was
+  caught and discarded rather than trusted — exactly the "never guess a
+  URL" discipline this project holds itself to elsewhere). Discovered the
+  real required fields by POSTing incrementally and reading each
+  validation error message (`"ownerID is a required field"` →
+  `"invalid service type..."` → `"must include serviceDetails..."` →
+  `"invalid runtime..."`) until a real service was created. The service
+  itself — `srv-da48i53bc2fs73c92qk0`, Docker runtime pointed at the
+  existing `Dockerfile`, free plan — deployed successfully on the very
+  first full request, live-verified by actually curling
+  `https://delivery-pipeline-sample-app.onrender.com/health` and getting
+  a real `200 {"status":"ok"}`, not just trusting Render's API response.
+- **`autoDeploy: false` in the create request silently didn't take** — the
+  service came back with `"autoDeploy":"yes"` anyway. Render's API wants
+  the *string* `"no"`, not a JSON boolean, for this field (inconsistent
+  with most of its other boolean-shaped fields, which is exactly why this
+  was checked by reading the actual response rather than assumed to have
+  worked). Fixed with a follow-up `PATCH .../services/:id`
+  `{"autoDeploy":"no"}`, confirmed by the response echoing
+  `"autoDeployTrigger":"off"`. Matters here specifically because
+  CLAUDE.md wants "deploy" to be a GitHub Actions-owned step — if Render
+  auto-deployed on every push to `main` on its own, the workflow's own
+  "trigger a deploy" step would be redundant with (and racing) Render's
+  background behavior.
+- **Qualys → OWASP ZAP's baseline scan, a real substitute, not a stub** —
+  same reasoning as Trivy standing in for Nexus IQ in Phase 5: Qualys is
+  enterprise-only with no free/self-serve tier, ZAP is free/open-source
+  and does the same *structural* job CLAUDE.md itself calls out — attacking
+  the live deployed URL, not the source, which is exactly the distinction
+  Phase 6's own checklist asked to have documented clearly. `fail_action:
+  false` and `allow_issue_writing: false` were deliberate: this scan runs
+  *after* merge, so a finding can't block anything the way a pre-merge
+  check can (there's nothing left to gate) — treated as a monitoring
+  signal recorded via `pipeline_events`, not a red X on a PR that's
+  already merged. Action version (`zaproxy/action-baseline@v0.15.0`)
+  verified live via `WebFetch` against the actual GitHub repo, same
+  discipline as Phase 5's action versions.
+- **`.github/workflows/deploy.yml` could not be dispatch-tested before
+  merge**, unlike Phase 5's `ci.yml`: GitHub only allows `workflow_dispatch`
+  for workflow files that already exist on the repo's default branch, even
+  when targeting a different `--ref` — confirmed by actually trying it
+  (`HTTP 404: workflow deploy.yml not found on the default branch`), not
+  assumed. Since branch protection blocks direct pushes to `main`
+  (`enforce_admins: true`, no exceptions — including for this workflow
+  file itself) and merging requires human review, this workflow's
+  individual operations were instead proven live *outside* CI: the exact
+  same Render API calls the workflow's bash steps make (trigger a deploy,
+  poll for `live`, curl `/health`) were run manually against the real
+  service before being encoded into the workflow, and the YAML itself was
+  hand-reviewed for `set -euo pipefail` / `$GITHUB_OUTPUT` correctness.
+  **This is a real limit on how thoroughly this workflow has been
+  verified** — the individual pieces are proven, the assembled workflow
+  running inside actual Actions infrastructure is not, until a human
+  merges [PR #3](https://github.com/umahanish/delivery-pipeline-sample-app/pull/3)
+  (or dispatches it manually once it's on `main`).
+- **Why the `backlog_items` DB update happens locally, not inside
+  `deploy.yml` itself**: GitHub's own cloud runners have no path to this
+  project's local Postgres (`localhost:5433`) — there's no tunnel, no
+  public endpoint, nothing to connect to. Every other DB write in this
+  project already follows the same direction (something running locally
+  reaches *out* to an external API — JIRA, GitHub), so
+  `src/orchestrator/deployStatus.ts` + `npm run sync-deploy-status`
+  continues that pattern instead of trying to invert it: a local,
+  one-shot script (same "not a poll daemon" convention as
+  `run-orchestrator.ts`) that checks every `pr_open` item for a human
+  merge (`pr_open` → `merged`, via `GET /pulls/:number`), then every
+  `merged` item for a completed deploy workflow run on that merge commit
+  (`merged` → `deployed` | `failed`, via
+  `GET /actions/workflows/deploy.yml/runs?head_sha=...`). A newly-merged
+  item's deploy is checked in the *same* pass, not deferred to the next
+  run — `listMerged()` is re-queried after the merge-check loop
+  specifically so this happens. Live-verified by actually running
+  `npm run sync-deploy-status` against SCRUM-18/PR #1: correctly reported
+  `merged: 0` (PR #1 is still open, awaiting the user's review), not a
+  crash or a false positive.
+- **Two real bugs caught by tests, both about not trusting a `Promise`'s
+  synchronous-looking neighbor**: `checkPrOpenItem` initially received a
+  test-fixture `item` object captured *before* `markPrOpen` ran against
+  the DB, so `item.prNumber` was still `null` in the test even though the
+  row itself was correct — fixed by re-fetching via `getBacklogItem` after
+  the write, not by trusting the pre-write in-memory object. Separately,
+  `syncDeployStatus`'s `checked` count summed `prOpenItems.length +
+  mergedItems.length`, double-counting any item that transitioned
+  `pr_open → merged` within the same pass (it's real work correctly
+  re-listed via `listMerged()` for the reason above, but still one item,
+  not two) — fixed with a `Set<string>` of item ids instead of adding two
+  list lengths.

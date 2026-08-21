@@ -157,6 +157,31 @@ export async function markPrOpen(pool: pg.Pool, id: string, prNumber: number, pr
   );
 }
 
+/** What Phase 6's reconciliation script polls to find PRs it should check for a merge. */
+export async function listPrOpen(pool: pg.Pool): Promise<BacklogItem[]> {
+  const { rows } = await pool.query<BacklogItemRow>(`SELECT * FROM backlog_items WHERE status = 'pr_open' ORDER BY created_at ASC`);
+  return rows.map(mapRow);
+}
+
+/** What Phase 6's reconciliation script polls to find merged items still awaiting a deploy result. */
+export async function listMerged(pool: pg.Pool): Promise<BacklogItem[]> {
+  const { rows } = await pool.query<BacklogItemRow>(`SELECT * FROM backlog_items WHERE status = 'merged' ORDER BY created_at ASC`);
+  return rows.map(mapRow);
+}
+
+/** A human merged the PR (detected, not caused, by this codebase — see Constraints: nothing here ever merges). deploy_status starts 'pending' since Phase 6's deploy workflow hasn't necessarily run yet. */
+export async function markMerged(pool: pg.Pool, id: string): Promise<void> {
+  await pool.query(`UPDATE backlog_items SET status = 'merged', deploy_status = 'pending', updated_at = now() WHERE id = $1`, [id]);
+}
+
+export async function markDeployed(pool: pg.Pool, id: string): Promise<void> {
+  await pool.query(`UPDATE backlog_items SET status = 'deployed', deploy_status = 'deployed', updated_at = now() WHERE id = $1`, [id]);
+}
+
+export async function markDeployFailed(pool: pg.Pool, id: string): Promise<void> {
+  await pool.query(`UPDATE backlog_items SET status = 'failed', deploy_status = 'failed', updated_at = now() WHERE id = $1`, [id]);
+}
+
 /** The agent exhausted its retry budget without converging — see CLAUDE.md Constraints. Never left silently stuck in 'in_dev'. */
 export async function markNeedsHuman(pool: pg.Pool, id: string): Promise<void> {
   await pool.query(`UPDATE backlog_items SET status = 'needs_human', updated_at = now() WHERE id = $1`, [id]);

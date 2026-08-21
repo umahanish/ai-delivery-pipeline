@@ -211,19 +211,26 @@ memory before checking it).
 
 ## Phase 6 — Deploy + Qualys
 
-- [ ] GitHub Actions workflow triggered on merge to main: deploy the
+- [x] GitHub Actions workflow triggered on merge to main: deploy the
       sample repo to a staging environment. Pick the simplest deployment
       target that makes the demo real without new infra cost/complexity —
       note the choice and why in `docs/DECISIONS.md` (a container on a
       free-tier host, a static deploy target, whatever fits what the
-      sample app in Phase 2 actually is).
-- [ ] Qualys scan runs against the deployed staging environment (a real
+      sample app in Phase 2 actually is). (Render.com free tier — a real
+      public HTTPS URL, deploy triggered explicitly by the workflow via
+      Render's API.)
+- [x] Qualys scan runs against the deployed staging environment (a real
       host/URL to scan), not the source — this is the one gate that
       structurally can't be a pre-merge PR check. Document this
       distinction clearly for anyone who assumes "Qualys scan" means the
-      same thing as the SonarQube/Nexus IQ PR checks.
-- [ ] Update the `backlog_items` row's deploy status; log a
-      `pipeline_events` entry.
+      same thing as the SonarQube/Nexus IQ PR checks. (OWASP ZAP baseline
+      scan stands in for Qualys — no license/instance exists in this
+      environment; see docs/DECISIONS.md.)
+- [x] Update the `backlog_items` row's deploy status; log a
+      `pipeline_events` entry. (Done by a local reconciliation script,
+      `npm run sync-deploy-status`, not by the GitHub Actions workflow
+      itself — GitHub's cloud runners can't reach this project's local
+      Postgres. See docs/DECISIONS.md.)
 
 ## Phase 7 — Status feedback & docs
 
