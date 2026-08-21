@@ -725,3 +725,46 @@ as something the orchestrator points at, not something living inside
   project's `.env` at all. Leaving unused placeholder vars in `.env.example`
   would have misled the next person setting this up into thinking they
   needed to fill them in here.
+
+## Merging all the reopened PRs — a real coverage gap, and a real git mistake
+
+- **The coverage gap**: merging PR #2 first (as planned) exposed that PR
+  #1's SonarCloud quality gate genuinely failed — `new_coverage: 0.0`
+  against the default 80% threshold, even though `tests/app.test.ts`
+  covers the app well. `ci.yml`'s `sonarqube` job never generated or
+  uploaded a coverage report, so SonarCloud had literally nothing to
+  measure and defaulted to 0. This is the exact gap flagged as TC-21 in
+  `Manual_Test_Case.csv` — the manual review predicted this before it was
+  ever hit for real. Fixed with `@vitest/coverage-v8`, a `vitest.config.ts`
+  producing lcov output, and `sonar.javascript.lcov.reportPaths` pointing
+  at it — verified two ways: locally (91.66% statement coverage on the
+  unmodified app), and live on PR #1 itself afterward (`new_coverage`
+  measured at `100.0`, the gate condition now `status: OK`).
+- **A real git mistake, caught and disclosed rather than papered over**:
+  building the coverage fix required creating a fresh branch off `main`.
+  Before doing that, `git status` showed local `main` had diverged from
+  `origin/main` by 1 commit — leftover from the earlier session's
+  local-git confusion (a stray local merge of the Manual_Test_Case.csv
+  commit, from before that PR existed). Running `git pull origin main` to
+  resolve the divergence created a local merge commit that *carried that
+  stray commit along* into the new branch's history — invisibly, since it
+  was already common history and produced no diff on the new branch.
+  When that branch's PR (#5, the coverage fix) was merged via GitHub, the
+  Manual_Test_Case.csv commit rode along with it onto `main`, entirely
+  bypassing PR #4's own review process. Discovered by noticing
+  `Manual_Test_Case.csv` unexpectedly appearing in a routine `git merge
+  origin/main --no-edit` diff summary for an unrelated branch, then
+  confirmed via `gh pr view 4 --json changedFiles` returning `0` — PR #4
+  had nothing left to contribute. **Fixed by disclosure, not
+  concealment**: commented on PR #4 explaining exactly what happened and
+  why, then closed it (not merged — there was nothing left to merge).
+  **Lesson for next time**: a diverged local branch should be reset to
+  exactly match `origin/<branch>` (`git reset --hard origin/main`) before
+  branching new work from it, never `git pull`'d — a `pull`'s merge commit
+  silently smuggles whatever caused the divergence into every branch
+  created afterward.
+- **End state**: PRs #1 and #4's branches both received one final `git
+  merge origin/main` (clean, no conflicts) to pick up the coverage fix
+  and everything else merged so far. PR #1 now shows
+  `mergeStateStatus: CLEAN` with a genuinely passing quality gate. PR #4
+  is closed (content already on `main` via PR #5, see above).
