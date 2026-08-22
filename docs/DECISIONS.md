@@ -867,3 +867,22 @@ as something the orchestrator points at, not something living inside
   retry/branch/status-value detail (a future contributor extending Phase
   4's logic, for instance) still has it, just not as the first thing a
   student sees.
+- **First version looked broken specifically on GitHub, not locally** —
+  it rendered correctly in a browser (verified above), but the user
+  reported it looked misaligned after it was actually pushed and viewed
+  on GitHub. Root cause: the first version used a single `<style>` block
+  with CSS classes (`.title`, `.sub`, `.arrow`, ...) shared across
+  elements. GitHub sanitizes SVGs it renders inline in READMEs and strips
+  `<style>` blocks — every element referencing a class lost its
+  font-size, text-anchor, dominant-baseline, and color, collapsing into
+  default black left-aligned text stacked on top of itself. This is
+  almost certainly *why* the sibling project's own reference SVG
+  (`devops-knowledge-mcp/images/devops_knowledge_mcp_architecture.svg`)
+  repeats full inline styles on every single element instead of using a
+  shared stylesheet — a detail worth noticing on the first read, not
+  after shipping a broken copy. Rewrote every `rect`/`text`/`line`/`path`
+  with its own inline `style="..."` (matching the reference's actual
+  technique, not just its visual output), re-verified locally, then this
+  time additionally fetched the raw file back from the GitHub API after
+  pushing to read its real committed content rather than trusting the
+  local file matched what shipped.
