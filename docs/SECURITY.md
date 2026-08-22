@@ -124,6 +124,33 @@ that needed it.
   pre-Phase-8; restated here as part of the same threat model rather
   than treated as unrelated).
 
+## Observability (Phase 9)
+
+Security and observability overlap more than they're usually given credit
+for — an attacker probing this app, or a pipeline silently stuck, both
+show up first as "something in the log stream looks wrong," not as a
+dedicated alert someone had to think to write in advance.
+
+- Every `pipeline_events` write is also a structured JSON log line
+  (`src/lib/logger.ts`), correlated by backlog item id — including auth
+  denials (`middleware.ts`) and rate-limit blocks
+  (`actions.ts`/the REST route), not just pipeline stage transitions.
+- Sentry captures unexpected exceptions in both the Next.js app and the
+  two orchestrator scripts — see `instrumentation.ts` and
+  `src/lib/sentryNode.ts`. A crash that reaches Sentry is, by
+  construction, one this app already degrades gracefully from (every
+  catch site that calls `Sentry.captureException` also marks the backlog
+  item `needs_human` rather than leaving it stuck — see
+  `src/orchestrator/processBacklogItem.ts`), so Sentry is a *notification*
+  channel here, not the only thing standing between a bug and data loss.
+- `/api/health` is deliberately unauthenticated (excluded from
+  `middleware.ts`'s matcher) — an uptime monitor can't present a session
+  cookie. It reveals only "the DB is reachable or it isn't," nothing
+  about backlog contents.
+- Slack notifications (`src/lib/notify.ts`) never throw and are a silent
+  no-op without `SLACK_WEBHOOK_URL` — a notification-channel outage must
+  never become a pipeline outage.
+
 ## Known gaps (named, not hidden)
 
 - **No admin UI for `authorized_users`** — CLI only
@@ -143,3 +170,14 @@ that needed it.
   demo actually runs (one Next.js process), explicitly *not* what a
   multi-instance production deployment should use (that needs a shared
   store like Redis/Upstash). Noted in `src/lib/rateLimit.ts` itself.
+- **Sentry's live error capture is unverified** — the init code, the
+  build-succeeds-without-a-DSN path, and the no-op-when-unset behavior
+  are all confirmed; an actual event landing in the Sentry dashboard
+  isn't, since that requires a sentry.io login this environment doesn't
+  have. Whoever runs this template should trigger a real error once and
+  confirm it shows up before relying on this for anything.
+- **`ai-delivery-pipeline`'s own `/api/health` has no external monitor
+  pointed at it** — it's local-only (`AUTH_URL=http://localhost:3000`),
+  so `.github/workflows/uptime.yml` targets the sample app's already-
+  deployed `/health` instead. If this UI is ever deployed somewhere
+  reachable, point a second scheduled check at its own `/api/health` too.
