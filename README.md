@@ -40,6 +40,48 @@ alone.
 
 ## End-to-end pipeline
 
+### Task details
+
+Eight stages, read top to bottom in the diagram below:
+
+1. **Product Owner / PM / Scrum Master** — the only human who kicks
+   things off. Opens the web UI and fills out a backlog item: what to
+   build, why, and how to know it's done.
+2. **Backlog UI (Next.js)** — saves the submission and, in the same
+   step, creates a matching **JIRA story** so the team's existing
+   tracker stays the source of truth. If JIRA is unreachable the
+   submission is still saved (never silently lost) and flagged for retry.
+3. **Orchestrator: coding agent** — once the PM clicks "Mark ready for
+   dev," this is where the AI actually writes code. It clones the target
+   repo into its own throwaway workspace (so it can never touch anything
+   shared), then loops through implement → run the repo's real test
+   suite → self-review against the acceptance criteria, retrying a
+   bounded number of times. If it genuinely can't converge, the item is
+   flagged `needs_human` with the agent's last output attached — it
+   never fails silently.
+4. **Pull request opened on GitHub** — the agent's work becomes a normal
+   PR, exactly as if a developer had pushed it. Nothing about the next
+   two stages is aware the code came from an AI.
+5. **CI gates (required status checks)** — the same automated checks any
+   team would run: the test suite, a SonarCloud code-quality scan, and a
+   dependency vulnerability scan (Trivy). All three must pass before the
+   PR can be merged — GitHub enforces this, not a person remembering to check.
+6. **Human reviews & approves** — the one box in this whole diagram that
+   is deliberately never automated. A person reads the diff and decides.
+   No code anywhere in this project is able to click "merge" — that's a
+   hard rule, not a setting.
+7. **Deploy + scan (on merge to main)** — merging is the trigger. GitHub
+   Actions deploys the app to a real staging URL, then runs a security
+   scan against the *running* application (not the source code) — this
+   is the step most people confuse with the CI scans in step 5, but it's
+   structurally different: it can only happen after merge, because
+   there's nothing running to scan before that.
+8. **Status synced back to the UI** — the loop closes. JIRA status, PR
+   review state, CI results, and deploy outcome all get written back
+   onto the original backlog item, so the PM can see the whole journey
+   from the same screen they started at, without checking four different
+   tools.
+
 ![AI Delivery Pipeline — end-to-end architecture](images/ai_delivery_pipeline_architecture.svg)
 
 A PM submits a backlog item → it becomes a real JIRA story → an
