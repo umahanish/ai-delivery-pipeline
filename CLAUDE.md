@@ -247,6 +247,57 @@ memory before checking it).
       every stage, ending at a real PR (and, time permitting, a real
       staging deploy).
 
+## Phase 8 — Zero Trust: auth, RBAC, and guardrails
+
+Scoped from user direction: every item below was explicitly requested,
+not assumed. Biggest starting gap — confirmed by grep, not guessed —
+is that the Backlog UI currently has **zero authentication**: every
+route and Server Action is open to anyone with the URL.
+
+- [ ] Real authentication on the Backlog UI. NextAuth.js + GitHub OAuth
+      (not a hand-rolled password store — "don't roll your own auth" is
+      itself a Zero Trust principle, and GitHub is already this
+      project's central identity anyway). Needs a GitHub OAuth App
+      (Client ID + Secret) created by the user.
+- [ ] RBAC: two roles minimum — `maintainer` (submit, mark ready for
+      dev) and `viewer` (read-only). A small `authorized_users` table
+      (GitHub username → role), not open self-signup — Zero Trust means
+      nobody is trusted by default, including a new GitHub login.
+- [ ] Middleware enforces auth on every route and Server Action, not
+      just hides UI elements client-side.
+- [ ] AI agent guardrails, formalized: document the existing isolation
+      properties (throwaway workspace, disallowed-tools list, bounded
+      retries, budget caps) as an explicit threat model in
+      `docs/SECURITY.md`, plus a prompt-injection consideration — the
+      backlog item's own description/acceptance criteria become part of
+      the agent's prompt, written by whoever has `maintainer` access.
+- [ ] Credential hardening: `GITHUB_TOKEN` scoped down to a fine-grained
+      PAT limited to `delivery-pipeline-sample-app` only, not full
+      `repo` scope. Secret-scanning (gitleaks) added as a new required
+      CI job alongside the existing Trivy dependency scan.
+- [ ] Transport/request hardening: security headers (CSP, HSTS,
+      X-Frame-Options, Referrer-Policy) via Next.js middleware; rate
+      limiting on the API routes.
+- [ ] `ai-delivery-pipeline` gets its own CI workflow (typecheck, test,
+      build, secret scan) — Phases 5-6 only ever built CI for the
+      *target* sample app; the orchestrator's own repo has never had one.
+
+## Phase 9 — Observability & monitoring
+
+- [ ] Structured audit logging: `pipeline_events` is already a partial
+      audit trail — formalize with structured JSON logs (correlation ID
+      per backlog item) for the Next.js app and the orchestrator/sync
+      scripts, not just DB rows.
+- [ ] Error tracking via Sentry (free tier) — Next.js app and the
+      orchestrator scripts. Needs a Sentry DSN from the user.
+- [ ] Uptime/health monitoring on the Render staging URL — a scheduled
+      check with alerting on failure.
+- [ ] Metrics dashboard in the UI: items submitted, time-to-PR, CI pass
+      rate, deploy success rate — pulled from `pipeline_events`.
+- [ ] Slack notifications on key events (PR opened, `needs_human`,
+      deploy success/failure, CI failure) — needs a Slack incoming
+      webhook URL from the user.
+
 ## Conventions
 
 - TypeScript, strict mode. No `any` without a comment explaining why.
