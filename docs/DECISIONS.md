@@ -828,3 +828,42 @@ as something the orchestrator points at, not something living inside
   Postgres data (leftover test-fixture rows, SCRUM-18's history) stays
   exactly where it was, untouched; the new Render database started from
   a clean `npm run migrate` run. Not asked for, so not done.
+
+## Redesigning the pipeline diagram for students
+
+- **The original mermaid diagram, while accurate, wasn't legible to
+  students** — real feedback, not a guess: it encoded every retry loop,
+  every status-string value, and every branch condition (`TEST -- no,
+  retry -->`, `REVIEW -- rounds exhausted -->`, etc.) in one flowchart,
+  which is the right level of detail for *this file* but the wrong level
+  for a first-look architecture picture.
+- **Matched the visual language of the sibling project's own diagram**
+  (`devops-knowledge-mcp/images/devops_knowledge_mcp_architecture.svg`)
+  rather than inventing a new style — same rounded-rect nodes, same
+  five-color semantic palette (reused the *exact* RGB values: tan for
+  external/human input, blue for the UI layer, green for automated
+  backend work, purple for quality gates, orange reserved for the one
+  place that needs deliberate visual emphasis), same arrow marker. Two
+  diagrams in the same course using the same visual grammar is worth
+  more to a student than either one being individually prettier.
+  `images/ai_delivery_pipeline_architecture.svg` collapses the mermaid
+  version's ~16 nodes into 8: one box per *phase*, not one box per
+  *state transition* — the retry loop becomes a single sentence inside
+  the "Orchestrator: coding agent" box's subtitle instead of a separate
+  branch, and CI's three parallel required checks become one box's
+  subtitle line instead of three nodes.
+- **Verified by actually rendering it**, not by trusting hand-written SVG
+  coordinates — `file://` navigation was blocked by the browser tool, so
+  served the `images/` directory over a throwaway local HTTP server and
+  loaded it through a tiny wrapper HTML page (viewing the bare `.svg`
+  directly triggered a Chrome image-viewer tiling artifact that looked
+  like a real rendering bug at first — wrapping it in an `<img>` inside
+  real HTML avoided that entirely). Confirmed the loop-back arrow lands
+  distinctly from the PM→UI arrow (offset entry point, not stacked), and
+  that the legend swatches render as plain colored squares, before
+  calling it done.
+- **Kept the original mermaid diagram, not deleted it** — moved into a
+  `<details>` disclosure in the README so anyone who wants the exact
+  retry/branch/status-value detail (a future contributor extending Phase
+  4's logic, for instance) still has it, just not as the first thing a
+  student sees.

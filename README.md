@@ -40,6 +40,24 @@ alone.
 
 ## End-to-end pipeline
 
+![AI Delivery Pipeline — end-to-end architecture](images/ai_delivery_pipeline_architecture.svg)
+
+A PM submits a backlog item → it becomes a real JIRA story → an
+autonomous coding agent implements it and opens a PR → CI gates run
+automatically → **a human is the only one who can approve the merge** →
+merging triggers an automatic staging deploy and security scan → the
+result syncs back to the same UI the PM started at. That loop (the
+dashed line) is what makes this a pipeline rather than a one-shot script
+— every subsequent submission goes through the exact same path.
+
+The only step that is never automated, by design, is the approval box.
+No code path in this repo can merge a PR; see the Constraints section of
+`CLAUDE.md` and the branch protection (`enforce_admins: true`) on both
+the sample app and this repo's own target repos.
+
+<details>
+<summary>More detailed technical view (retry loops, exact status values, mocked-vs-real components)</summary>
+
 ```mermaid
 flowchart TD
     PM["Product Owner / PM / Scrum Master"] -->|fills out form| UI["Backlog UI (Next.js)\n/new"]
@@ -77,11 +95,7 @@ flowchart TD
     class ORCH,WS,IMPL,TEST,REVIEW,PUSH,PR,STUCK,CI,GATE,MERGE,DEPLOY,ZAP,SYNC,DONE,UI2 built;
 ```
 
-The only step that is never automated, by design, is the approval gate —
-`GATE` above. No code path in this repo can merge a PR; see the
-Constraints section of `CLAUDE.md` and the branch protection
-(`enforce_admins: true`) on both the sample app and this repo's own
-target repos.
+</details>
 
 ## Setup
 
