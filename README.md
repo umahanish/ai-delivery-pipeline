@@ -15,7 +15,9 @@ is a separate system with its own repo and lifecycle.
 ## Status
 
 **All 7 core phases are built, plus Phase 8 (Zero Trust auth/RBAC/guardrails)
-is underway** — see `docs/SECURITY.md` for the full threat model and
+and Phase 9 (observability & monitoring — structured logs, Sentry, uptime
+monitoring, a metrics dashboard, Slack notifications)** — see
+`docs/SECURITY.md` for the full threat model and
 `docs/DECISIONS.md` for the real Edge Runtime bug this phase caught along
 the way. Every route now requires a real, allowlisted GitHub login; there
 is no unauthenticated access anywhere in this app. Submitting a backlog item through the web UI
@@ -215,6 +217,42 @@ npm run authorize-user -- <your-github-login> maintainer
 or mark items ready). There's no admin UI for managing this yet; it's a
 named gap in `docs/SECURITY.md`, run the command again to add more people.
 
+### Observability setup (optional — the app runs fine without it)
+
+All optional; each piece degrades to a silent no-op without its env var,
+never a broken build or a crashed pipeline run. Fill in `.env`:
+
+```
+SENTRY_DSN=              # sentry.io -> new Next.js project -> copy the DSN
+NEXT_PUBLIC_SENTRY_DSN=  # same value as SENTRY_DSN -- a DSN is meant to be public
+SLACK_WEBHOOK_URL=       # api.slack.com/apps -> Incoming Webhooks -> Add New Webhook to Workspace
+```
+
+- **Structured logs** — every `pipeline_events` write (see
+  `src/db/backlogItems.ts`'s `logPipelineEvent`) also emits one JSON line
+  to stdout via `src/lib/logger.ts`, correlated by backlog item id.
+  Nothing to configure; visible in `npm run dev`'s terminal or wherever
+  stdout ends up in production.
+- **Error tracking** — Sentry, wired into the Next.js app
+  (`instrumentation.ts` + `sentry.*.config.ts`, covering server, edge,
+  and browser) and into the two orchestrator scripts separately
+  (`src/lib/sentryNode.ts`, since they run under `tsx`, never inside
+  Next's own runtime).
+- **Uptime monitoring** — `.github/workflows/uptime.yml` checks the
+  deployed sample app's `/health` endpoint every 30 minutes and posts to
+  Slack on failure. Needs `STAGING_HEALTH_URL` and `SLACK_WEBHOOK_URL` as
+  repo secrets on `ai-delivery-pipeline` (not in `.env` — this runs on
+  GitHub's runners, not locally). There's also a local `/api/health` on
+  this app itself (DB-connectivity-checked, unauthenticated by design) for
+  if this UI is ever deployed somewhere externally reachable.
+- **Metrics dashboard** — `/metrics` in the UI: items by status,
+  needs-human count, average time to PR, CI pass rate, deploy success
+  rate, and a recent-activity feed — all derived from
+  `backlog_items`/`pipeline_events`, no separate store.
+- **Slack notifications** — on PR opened, `needs_human`, CI failing,
+  and deploy success/failure (`src/lib/notify.ts`, called from
+  `src/orchestrator/processBacklogItem.ts` and `deployStatus.ts`).
+
 ### Run the UI
 
 ```bash
@@ -265,17 +303,21 @@ right `GITHUB_TOKEN` scope) — you just won't get CI/deploy gating on it.
 
 ```
 src/
-  db/            schema.sql, migrations/, pool.ts, backlogItems.ts, authorizedUsers.ts (RBAC allowlist)
+  db/            schema.sql, migrations/, pool.ts, backlogItems.ts, authorizedUsers.ts (RBAC allowlist), metrics.ts (Phase 9 dashboard queries)
   jira/          client.ts (create-issue only, not a full connector), adf.ts (text -> Atlassian Document Format), fromEnv.ts
-  lib/           createBacklogItem.ts, rateLimit.ts (Phase 8, in-memory)
+  lib/           createBacklogItem.ts, rateLimit.ts (Phase 8, in-memory), logger.ts (structured JSON logs), notify.ts (Slack), sentryNode.ts (Sentry for the two scripts)
   agent/         runCodingAgent.ts (Claude Agent SDK wrapper), prompts.ts (implement/fix/self-review prompt building)
   github/        client.ts (PR creation, merge/review/CI-status checks), parseRepo.ts
   orchestrator/  git.ts, workspace.ts, processBacklogItem.ts (Phase 4's implement/test/review loop), deployStatus.ts (Phase 6-7's reconciliation)
-  app/           Next.js App Router: page.tsx (list), new/page.tsx (form), signin/, actions.ts (Server Actions), api/backlog-items/route.ts (REST), api/auth/ (NextAuth)
+  app/           Next.js App Router: page.tsx (list), new/page.tsx (form), signin/, metrics/page.tsx (Phase 9 dashboard), actions.ts (Server Actions), api/backlog-items/route.ts (REST), api/health/route.ts (Phase 9, unauthenticated), api/auth/ (NextAuth), global-error.tsx (Sentry boundary)
   auth.ts        full NextAuth config (Node runtime -- Server Components/Actions/Route Handlers)
   auth.config.ts Edge-safe base config (no DB access) -- used by middleware.ts only, see docs/DECISIONS.md
-  middleware.ts  Phase 8: the single auth enforcement point for every route
+  middleware.ts  Phase 8: the single auth enforcement point for every route (except /api/health)
+instrumentation.ts, instrumentation-client.ts, sentry.server.config.ts, sentry.edge.config.ts   Phase 9 Sentry wiring for the Next.js app
 scripts/         migrate.ts, migrate-test.ts, run-orchestrator.ts, sync-deploy-status.ts, authorize-user.ts (RBAC admin CLI)
+.github/workflows/
+  ci.yml          typecheck/test/build/secret-scan on every PR
+  uptime.yml      Phase 9: scheduled health check against the deployed sample app, Slack alert on failure
 docs/
   DECISIONS.md    every judgment call, including bugs found while building
   DEMO_SCRIPT.md  a full end-to-end walkthrough

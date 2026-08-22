@@ -301,19 +301,45 @@ route and Server Action is open to anyone with the URL.
 
 ## Phase 9 — Observability & monitoring
 
-- [ ] Structured audit logging: `pipeline_events` is already a partial
-      audit trail — formalize with structured JSON logs (correlation ID
-      per backlog item) for the Next.js app and the orchestrator/sync
-      scripts, not just DB rows.
-- [ ] Error tracking via Sentry (free tier) — Next.js app and the
-      orchestrator scripts. Needs a Sentry DSN from the user.
-- [ ] Uptime/health monitoring on the Render staging URL — a scheduled
-      check with alerting on failure.
-- [ ] Metrics dashboard in the UI: items submitted, time-to-PR, CI pass
-      rate, deploy success rate — pulled from `pipeline_events`.
-- [ ] Slack notifications on key events (PR opened, `needs_human`,
-      deploy success/failure, CI failure) — needs a Slack incoming
-      webhook URL from the user.
+- [x] Structured audit logging: `logPipelineEvent` (the one write path
+      to `pipeline_events`) now also emits a JSON line via
+      `src/lib/logger.ts`, correlated by backlog item id — one call site,
+      every existing stage transition covered for free, DB row and log
+      line can never drift apart. Also wired into auth denials and rate
+      limiting in `middleware.ts`/`actions.ts`/the REST route, and
+      run-level start/end in both orchestrator scripts.
+- [x] Error tracking via Sentry (free tier) — Next.js app via
+      `instrumentation.ts` + `sentry.server.config.ts` +
+      `sentry.edge.config.ts` + `instrumentation-client.ts` +
+      `app/global-error.tsx`; the two orchestrator scripts separately via
+      `src/lib/sentryNode.ts` (`tsx scripts/*.ts` never runs inside
+      Next's own instrumentation hook). No-ops cleanly without
+      `SENTRY_DSN` set — verified the prod build still succeeds with it
+      unset, matching CI's minimal env. `next.config.ts` deliberately
+      *not* wrapped with `withSentryConfig` — that's only for source-map
+      upload, which needs `SENTRY_AUTH_TOKEN`/org/project the user never
+      provided; runtime error capture doesn't need it. Live capture
+      itself unverified (no sentry.io login available) — named gap, see
+      docs/SECURITY.md.
+- [x] Uptime/health monitoring on the Render staging URL —
+      `.github/workflows/uptime.yml`, every 30 minutes, Slack alert on a
+      non-200. Targets the *sample app's* deployed
+      `/health` (`ai-delivery-pipeline`'s own UI is local-only,
+      `AUTH_URL=http://localhost:3000` — no GitHub-hosted runner could
+      ever reach it). Also added a local `/api/health` on this app
+      itself (real DB-connectivity check, deliberately excluded from
+      middleware's auth gate) for if it's ever deployed somewhere
+      externally reachable.
+- [x] Metrics dashboard in the UI: `/metrics` — items submitted, by
+      status, needs-human count, avg time to PR (dev_started ->
+      pr_opened), CI pass rate, deploy success rate, recent-activity
+      feed — all derived from `backlog_items`/`pipeline_events`
+      (`src/db/metrics.ts`), no separate store. Read-only, visible to
+      any signed-in user (viewer or maintainer).
+- [x] Slack notifications on key events (PR opened, `needs_human`,
+      deploy success/failure, CI failure) — `src/lib/notify.ts`, a silent
+      no-op without `SLACK_WEBHOOK_URL` and never throws on a failed
+      post, so a Slack outage can't break the pipeline it's reporting on.
 
 ## Conventions
 

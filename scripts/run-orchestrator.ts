@@ -9,7 +9,11 @@ import { listReadyForDev } from "../src/db/backlogItems.js";
 import { getPool } from "../src/db/pool.js";
 import { GitHubClient } from "../src/github/client.js";
 import { parseGitHubRepo } from "../src/github/parseRepo.js";
+import { logger } from "../src/lib/logger.js";
+import { initSentryForScript, Sentry } from "../src/lib/sentryNode.js";
 import { processBacklogItem } from "../src/orchestrator/processBacklogItem.js";
+
+initSentryForScript();
 
 async function main(): Promise<void> {
   const githubToken = process.env.GITHUB_TOKEN;
@@ -21,6 +25,7 @@ async function main(): Promise<void> {
 
   try {
     const items = await listReadyForDev(pool);
+    logger.info("orchestrator_run_started", { itemCount: items.length });
     if (items.length === 0) {
       console.log("No backlog items are ready for dev.");
       return;
@@ -46,13 +51,16 @@ async function main(): Promise<void> {
       );
 
       console.log(outcome);
+      logger.info("orchestrator_item_result", { correlationId: item.id, jiraKey: item.jiraKey, ...outcome });
     }
   } finally {
     await pool.end();
   }
 }
 
-main().catch((err) => {
+main().catch(async (err) => {
+  Sentry.captureException(err);
+  await Sentry.close(2000);
   console.error(err);
   process.exit(1);
 });

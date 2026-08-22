@@ -24,6 +24,13 @@ const { prepareWorkspace } = await import("../../src/orchestrator/workspace");
 const { hasUncommittedChanges, getWorkingDiff, commitAll, pushBranch } = await import("../../src/orchestrator/git");
 const { processBacklogItem } = await import("../../src/orchestrator/processBacklogItem");
 
+// processBacklogItem notifies Slack on pr_opened/needs_human (Phase 9).
+// getTestPool()'s `import "dotenv/config"` loads the real .env, which on a
+// dev machine has a real SLACK_WEBHOOK_URL — unset it here so these tests
+// never fire a real webhook POST; Slack's own send/failure behavior is
+// covered by tests/lib/notify.test.ts with a stubbed fetch instead.
+delete process.env.SLACK_WEBHOOK_URL;
+
 const pool = getTestPool();
 
 beforeEach(async () => {

@@ -1,0 +1,41 @@
+# Uptime/health monitoring (Phase 9) — a scheduled check against the one
+# externally-reachable URL in this whole project: the deployed sample
+# app's staging URL on Render (ai-delivery-pipeline's own Next.js UI is
+# local-only, AUTH_URL=http://localhost:3000, so a GitHub-hosted runner
+# can never reach its /api/health -- see docs/DECISIONS.md). Runs here,
+# not on the sample app's own repo, because this repo is the one that
+# owns the observability/monitoring concern (Phase 9), the same reasoning
+# CLAUDE.md already applies to sync-deploy-status.ts reaching out rather
+# than the target repo reaching in.
+
+name: Uptime check
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check staging health endpoint
+        id: health
+        run: |
+          code=$(curl -s -o /tmp/body.txt -w "%{http_code}" --max-time 15 "$STAGING_HEALTH_URL" || echo "000")
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          echo "Response ($code):"
+          cat /tmp/body.txt
+        env:
+          STAGING_HEALTH_URL: ${{ secrets.STAGING_HEALTH_URL }}
+
+      - name: Alert Slack on failure
+        if: steps.health.outputs.code != '200'
+        run: |
+          curl -s -X POST -H 'Content-Type: application/json' \
+            -d "{\"text\":\":rotating_light: Staging health check failed — ${STAGING_HEALTH_URL} returned HTTP ${HTTP_CODE}\"}" \
+            "$SLACK_WEBHOOK_URL"
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          STAGING_HEALTH_URL: ${{ secrets.STAGING_HEALTH_URL }}
+          HTTP_CODE: ${{ steps.health.outputs.code }}

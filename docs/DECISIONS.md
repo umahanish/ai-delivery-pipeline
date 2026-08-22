@@ -1008,3 +1008,88 @@ as something the orchestrator points at, not something living inside
   Zero Trust framing: an "enterprise production ready" template
   shouldn't allow direct pushes to `main` on any of its own repos,
   including itself.
+
+## Phase 9 — observability & monitoring
+
+- **Structured audit logging piggybacks on the existing audit trail
+  rather than duplicating it**: `logPipelineEvent` in
+  `src/db/backlogItems.ts` is already the one write path to
+  `pipeline_events` — every stage transition in the whole pipeline
+  already calls it. Adding one `logger.info()` call inside that function
+  (rather than sprinkling log calls at every call site individually)
+  means every existing instrumentation point gets a structured JSON log
+  line for free, and the DB row and the log line can never drift out of
+  sync with each other — there's structurally only one place they could.
+  Auth denials and rate-limit blocks got their own explicit `logger.warn`
+  calls at their actual source (`middleware.ts`, `actions.ts`, the REST
+  route) since those aren't backlog-item events and have no natural home
+  in `logPipelineEvent`.
+- **A real bug caught before it shipped: tests would have POSTed to the
+  real Slack webhook on every `npm test` run.** `tests/helpers/db.ts`
+  does `import "dotenv/config"` to load `TEST_DATABASE_URL` from the real
+  `.env` — which also has a real `SLACK_WEBHOOK_URL` in it. Once
+  `processBacklogItem.ts`/`deployStatus.ts` started calling
+  `notifySlack()`, every test file that imports `getTestPool()` (which is
+  most of `tests/orchestrator/`) would have had a real, ambient
+  `SLACK_WEBHOOK_URL` in `process.env` — meaning the *existing*
+  `pr_opened`/`needs_human`/`deployed` test cases, none of which were
+  written with Slack in mind, would have silently fired real webhook
+  POSTs to the user's actual Slack workspace on every `npm test`. Caught
+  by tracing through what `import "dotenv/config"` actually loads before
+  running the suite, not by observing a failure — the tests would have
+  passed either way, they'd just have had an undocumented, un-asked-for
+  side effect. Fixed by explicitly `delete process.env.SLACK_WEBHOOK_URL`
+  at the top of `processBacklogItem.test.ts`/`deployStatus.test.ts`, so
+  `notifySlack`'s own no-op-without-a-URL guard kicks in regardless of
+  what's in the developer's local `.env`. `notifySlack` itself is tested
+  separately with a stubbed `fetch` in `tests/lib/notify.test.ts`, same
+  convention as the JIRA/GitHub clients.
+- **Sentry: two separate integrations, not one.** `instrumentation.ts` +
+  `sentry.server.config.ts`/`sentry.edge.config.ts`/
+  `instrumentation-client.ts` cover the Next.js app (Server Components,
+  Server Actions, Route Handlers, middleware, the browser bundle) — but
+  `scripts/run-orchestrator.ts` and `scripts/sync-deploy-status.ts` run
+  under `tsx` directly, never through Next's own instrumentation hook, so
+  they need their own `Sentry.init()` (`src/lib/sentryNode.ts`) and their
+  own explicit `Sentry.captureException` + `await Sentry.close(2000)`
+  before `process.exit()` — a short-lived script that exits immediately
+  after an error can drop the event before Sentry's background sender
+  gets to flush it, confirmed by reading Sentry's own Node.js docs rather
+  than assumed. `next.config.ts` deliberately isn't wrapped with
+  `withSentryConfig` — that wrapper is for source-map upload during
+  build, which needs `SENTRY_AUTH_TOKEN`/an org slug/a project slug that
+  were never provided; runtime error capture works fully without it.
+  Verified the production build still succeeds with `SENTRY_DSN`/
+  `NEXT_PUBLIC_SENTRY_DSN` both unset (same `env`-scoped build check used
+  to verify Phase 8's CI env minimalism), so an operator who never sets
+  up Sentry at all still gets a working app, not a build failure.
+- **Uptime monitoring targets the sample app's `/health`, not this app's
+  own `/api/health`** — `ai-delivery-pipeline`'s Next.js UI is local-only
+  (`AUTH_URL=http://localhost:3000`), so a GitHub-hosted runner
+  (`.github/workflows/uptime.yml`, on a 30-minute schedule) can never
+  reach it; `https://delivery-pipeline-sample-app.onrender.com/health`
+  (created back in the Render-migration work, see above) is the only
+  externally-reachable URL anywhere in this project, live-curled and
+  confirmed `200 {"status":"ok"}` before wiring the workflow around it.
+  `/api/health` was still added to `ai-delivery-pipeline` itself — real
+  DB-connectivity check, not a hardcoded 200 — for if this UI is ever
+  deployed somewhere reachable later, and had to be explicitly excluded
+  from `middleware.ts`'s auth-gate matcher, since an external monitor has
+  no session cookie to present.
+- **Metrics dashboard reuses `backlog_items`/`pipeline_events` directly,
+  no new store** — `src/db/metrics.ts`'s time-to-PR query joins
+  `pipeline_events` against itself (`dev_started` -> `pr_opened` per
+  item) rather than adding a duration column anywhere, and CI-pass-rate/
+  deploy-success-rate both explicitly exclude `pending`/`null` from the
+  denominator (an item that hasn't reached a resolved CI or deploy
+  outcome yet shouldn't silently count against the rate). `/metrics` is
+  behind the same auth middleware as everything else but not
+  maintainer-gated — a `viewer`'s read-only role already means "can see
+  pipeline state," and this is just more of that same state, aggregated.
+- **Repo secrets, not `.env`, for the uptime workflow** —
+  `STAGING_HEALTH_URL` and `SLACK_WEBHOOK_URL` were set via
+  `gh secret set --repo umahanish/ai-delivery-pipeline` (the workflow
+  runs on GitHub's runners, which never see this repo's local `.env`),
+  the same pattern already established for `SONAR_TOKEN`/
+  `RENDER_API_KEY`/`RENDER_SERVICE_ID` on the sample app's own CI in an
+  earlier phase.
