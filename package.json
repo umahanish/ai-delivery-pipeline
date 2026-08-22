@@ -19,6 +19,8 @@
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.238",
+    "@sentry/nextjs": "^10.70.0",
+    "@sentry/node": "^10.70.0",
     "dotenv": "^17.4.2",
     "next": "^15.1.6",
     "next-auth": "^5.0.0-beta.32",

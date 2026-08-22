@@ -12,7 +12,11 @@ import { listMerged, listPrOpen } from "../src/db/backlogItems.js";
 import { getPool } from "../src/db/pool.js";
 import { GitHubClient } from "../src/github/client.js";
 import { parseGitHubRepo } from "../src/github/parseRepo.js";
+import { logger } from "../src/lib/logger.js";
+import { initSentryForScript, Sentry } from "../src/lib/sentryNode.js";
 import { syncDeployStatus } from "../src/orchestrator/deployStatus.js";
+
+initSentryForScript();
 
 async function main(): Promise<void> {
   const githubToken = process.env.GITHUB_TOKEN;
@@ -40,12 +44,15 @@ async function main(): Promise<void> {
 
     const summary = await syncDeployStatus({ pool, github, deployWorkflowFileName: "deploy.yml" });
     console.log(summary);
+    logger.info("sync_deploy_status_run_completed", { ...summary });
   } finally {
     await pool.end();
   }
 }
 
-main().catch((err) => {
+main().catch(async (err) => {
+  Sentry.captureException(err);
+  await Sentry.close(2000);
   console.error(err);
   process.exit(1);
 });
