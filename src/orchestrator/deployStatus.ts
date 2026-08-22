@@ -25,6 +25,7 @@ import {
   type BacklogItem,
 } from "../db/backlogItems";
 import type { DeployWorkflowChecker, PrStatusChecker, PullRequestChecker } from "../github/client";
+import { notifySlack } from "../lib/notify";
 
 export interface SyncDeployStatusDeps {
   pool: pg.Pool;
@@ -56,6 +57,9 @@ export async function checkPrOpenItem(deps: SyncDeployStatusDeps, item: BacklogI
   const changed = await updatePrStatus(deps.pool, item.id, prStatus.reviewStatus, prStatus.ciStatus);
   if (changed) {
     await logPipelineEvent(deps.pool, item.id, "pr_status_updated", `review: ${prStatus.reviewStatus}, ci: ${prStatus.ciStatus}`);
+    if (prStatus.ciStatus === "failing") {
+      await notifySlack(`:x: CI failing on *${item.jiraKey ?? item.title}* — ${item.prUrl ?? `PR #${item.prNumber}`}`);
+    }
   }
 
   if (!merged) {
@@ -88,11 +92,13 @@ export async function checkMergedItem(deps: SyncDeployStatusDeps, item: BacklogI
   if (run.conclusion === "success") {
     await markDeployed(deps.pool, item.id);
     await logPipelineEvent(deps.pool, item.id, "deployed", run.htmlUrl);
+    await notifySlack(`:rocket: *${item.jiraKey ?? item.title}* deployed — ${run.htmlUrl}`);
     return { outcome: "deployed", runUrl: run.htmlUrl };
   }
 
   await markDeployFailed(deps.pool, item.id);
   await logPipelineEvent(deps.pool, item.id, "deploy_failed", `${run.conclusion ?? "unknown"}: ${run.htmlUrl}`);
+  await notifySlack(`:x: Deploy failed for *${item.jiraKey ?? item.title}* — ${run.htmlUrl}`);
   return { outcome: "deploy_failed", runUrl: run.htmlUrl };
 }
 

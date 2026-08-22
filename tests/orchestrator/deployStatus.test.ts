@@ -11,6 +11,13 @@ import type {
 import { checkMergedItem, checkPrOpenItem, syncDeployStatus } from "../../src/orchestrator/deployStatus";
 import { getTestPool, resetDb } from "../helpers/db";
 
+// deployStatus notifies Slack on deployed/deploy_failed/CI-failing (Phase
+// 9). getTestPool()'s `import "dotenv/config"` loads the real .env, which
+// on a dev machine has a real SLACK_WEBHOOK_URL — unset it here so these
+// tests never fire a real webhook POST; Slack's own send/failure behavior
+// is covered by tests/lib/notify.test.ts with a stubbed fetch instead.
+delete process.env.SLACK_WEBHOOK_URL;
+
 const pool = getTestPool();
 
 beforeEach(async () => {

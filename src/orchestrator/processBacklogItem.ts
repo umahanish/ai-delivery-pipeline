@@ -11,6 +11,8 @@ import { buildFixPrompt, buildImplementPrompt, buildSelfReviewPrompt, type Story
 import { claimForDev, logPipelineEvent, markNeedsHuman, markPrOpen, type BacklogItem } from "../db/backlogItems";
 import type { PullRequestOpener } from "../github/client";
 import { parseGitHubRepo } from "../github/parseRepo";
+import { Sentry } from "../lib/sentryNode";
+import { notifySlack } from "../lib/notify";
 import { commitAll, getWorkingDiff, hasUncommittedChanges, pushBranch } from "./git";
 import { prepareWorkspace, type Workspace } from "./workspace";
 
@@ -109,11 +111,15 @@ export async function processBacklogItem(deps: ProcessBacklogItemDeps, item: Bac
 
       await markPrOpen(deps.pool, item.id, pr.number, pr.url);
       await logPipelineEvent(deps.pool, item.id, "pr_opened", pr.url);
+      await notifySlack(`:tada: PR opened for *${item.jiraKey ?? item.title}* — ${pr.url}`);
       return { outcome: "pr_opened", prNumber: pr.number, prUrl: pr.url, rounds: round };
     }
 
     await markNeedsHuman(deps.pool, item.id);
     await logPipelineEvent(deps.pool, item.id, "needs_human", lastOutput.slice(0, 2000));
+    await notifySlack(
+      `:warning: *${item.jiraKey ?? item.title}* needs a human — the coding agent exhausted its ${deps.maxRounds}-round budget without converging.`,
+    );
     return { outcome: "needs_human", rounds: deps.maxRounds, lastOutput };
   } catch (err) {
     // Belt-and-suspenders beyond the per-round handling above: an
@@ -124,8 +130,10 @@ export async function processBacklogItem(deps: ProcessBacklogItemDeps, item: Bac
     // CLAUDE.md's Phase 4 "on exhausting retries" requirement exists to
     // prevent — that intent extends to crashes, not just clean exhaustion.
     const message = err instanceof Error ? (err.stack ?? err.message) : String(err);
+    Sentry.captureException(err);
     await markNeedsHuman(deps.pool, item.id);
     await logPipelineEvent(deps.pool, item.id, "needs_human", `unexpected error: ${message.slice(0, 2000)}`);
+    await notifySlack(`:rotating_light: *${item.jiraKey ?? item.title}* crashed unexpectedly and needs a human: ${message.slice(0, 300)}`);
     return { outcome: "needs_human", rounds: roundsAttempted, lastOutput: message };
   } finally {
     await workspace?.cleanup();
