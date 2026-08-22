@@ -3,13 +3,24 @@
 // same-app usage), but this route exists for external/future callers
 // (e.g. a script, or Phase 4's orchestrator if it ever needs HTTP access
 // instead of querying Postgres directly).
+//
+// Phase 8: this route now sits behind the same session-cookie auth as
+// every other route (see src/middleware.ts) -- a plain `curl` call
+// without a browser-established session gets a 401 before it even
+// reaches here. That's a real change to "external/scripted use": a
+// genuine machine-to-machine caller (a CI job, say) would need a
+// separate API-key scheme, which is out of scope for this pass. Noted
+// in docs/DECISIONS.md rather than silently narrowing the doc comment
+// above without saying so.
 
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { auth } from "../../../auth";
 import { listBacklogItems } from "../../../db/backlogItems";
 import { getPool } from "../../../db/pool";
 import { createJiraClientFromEnv } from "../../../jira/fromEnv";
 import { createBacklogItem } from "../../../lib/createBacklogItem";
+import { checkRateLimit } from "../../../lib/rateLimit";
 
 const NewBacklogItemSchema = z.object({
   title: z.string().min(1),
@@ -25,6 +36,16 @@ export async function GET(): Promise<NextResponse> {
 }
 
 export async function POST(request: Request): Promise<NextResponse> {
+  const session = await auth();
+  if (session?.user.role !== "maintainer") {
+    return NextResponse.json({ error: "only a maintainer can create backlog items" }, { status: 403 });
+  }
+
+  const { allowed } = checkRateLimit(`api:${session.user.githubLogin ?? "unknown"}`, 20, 10 * 60 * 1000);
+  if (!allowed) {
+    return NextResponse.json({ error: "rate limit exceeded — try again in a few minutes" }, { status: 429 });
+  }
+
   const body: unknown = await request.json().catch(() => null);
   const parsed = NewBacklogItemSchema.safeParse(body);
   if (!parsed.success) {

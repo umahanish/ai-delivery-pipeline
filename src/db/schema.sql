@@ -54,3 +54,12 @@ CREATE TABLE pipeline_events (
 );
 
 CREATE INDEX idx_pipeline_events_backlog_item_id ON pipeline_events (backlog_item_id);
+
+-- Zero Trust RBAC allowlist (Phase 8) -- a GitHub login not in this table
+-- is refused at sign-in, before a session is ever created.
+CREATE TABLE authorized_users (
+    github_login  text PRIMARY KEY,
+    role          text NOT NULL CHECK (role IN ('maintainer', 'viewer')),
+    added_by      text,
+    created_at    timestamptz NOT NULL DEFAULT now()
+);

@@ -3,10 +3,34 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { auth } from "../auth";
 import { markReadyForDev } from "../db/backlogItems";
 import { getPool } from "../db/pool";
 import { createJiraClientFromEnv } from "../jira/fromEnv";
 import { createBacklogItem } from "../lib/createBacklogItem";
+import { checkRateLimit } from "../lib/rateLimit";
+
+/**
+ * Defense in depth (Phase 8): middleware already blocks unauthenticated
+ * requests, but Server Actions can in principle be invoked directly, not
+ * only through a page middleware protected -- so every mutating action
+ * checks role again here, server-side, not just via a hidden UI button.
+ * Also enforces per-user rate limiting here, keyed by GitHub login
+ * (meaningful since every caller is already authenticated by this
+ * point -- no need to fall back to IP-based keying).
+ */
+async function requireMaintainer(): Promise<string> {
+  const session = await auth();
+  if (session?.user.role !== "maintainer") {
+    throw new Error("Only a maintainer can do this — your account is read-only (or not signed in).");
+  }
+  const login = session.user.githubLogin ?? "unknown";
+  const { allowed } = checkRateLimit(`action:${login}`, 20, 10 * 60 * 1000);
+  if (!allowed) {
+    throw new Error("Too many actions too quickly — wait a few minutes and try again.");
+  }
+  return login;
+}
 
 const NewBacklogItemSchema = z.object({
   title: z.string().min(1, "Title is required"),
@@ -25,6 +49,12 @@ export async function submitBacklogItemAction(
   _prevState: SubmitBacklogItemState,
   formData: FormData,
 ): Promise<SubmitBacklogItemState> {
+  try {
+    await requireMaintainer();
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Not authorized" };
+  }
+
   const parsed = NewBacklogItemSchema.safeParse({
     title: formData.get("title"),
     description: formData.get("description"),
@@ -54,6 +84,7 @@ export async function submitBacklogItemAction(
 
 /** Bound per-row on the list page: <form action={markReadyAction.bind(null, item.id)}>. */
 export async function markReadyAction(id: string): Promise<void> {
+  await requireMaintainer();
   const updated = await markReadyForDev(getPool(), id);
   if (!updated) {
     throw new Error("Couldn't mark this item ready — it may not have a JIRA story yet, or has already moved past this stage.");

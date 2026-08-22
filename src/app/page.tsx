@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { markReadyAction } from "./actions";
+import { auth } from "../auth";
 import { listBacklogItems } from "../db/backlogItems";
 import { getPool } from "../db/pool";
 
@@ -16,14 +17,20 @@ export default async function HomePage({
   const { created } = await searchParams;
   const items = await listBacklogItems(getPool());
   const createdItem = created ? items.find((item) => item.id === created) : undefined;
+  const session = await auth();
+  // Hidden here purely for UX -- actions.ts/route.ts enforce this
+  // server-side regardless of what a viewer's browser shows them.
+  const isMaintainer = session?.user.role === "maintainer";
 
   return (
     <main>
       <div className="header">
         <h1>Backlog</h1>
-        <Link href="/new" className="button">
-          + New backlog item
-        </Link>
+        {isMaintainer ? (
+          <Link href="/new" className="button">
+            + New backlog item
+          </Link>
+        ) : null}
       </div>
 
       {createdItem ? (
@@ -46,7 +53,14 @@ export default async function HomePage({
 
       {items.length === 0 ? (
         <p className="empty">
-          No backlog items yet. <Link href="/new">Submit the first one</Link>.
+          No backlog items yet.{" "}
+          {isMaintainer ? (
+            <>
+              <Link href="/new">Submit the first one</Link>.
+            </>
+          ) : (
+            "Ask a maintainer to submit one."
+          )}
         </p>
       ) : (
         <table>
@@ -111,7 +125,7 @@ export default async function HomePage({
                 </td>
                 <td>{new Date(item.createdAt).toLocaleString()}</td>
                 <td>
-                  {item.status === "submitted" && item.jiraKey ? (
+                  {isMaintainer && item.status === "submitted" && item.jiraKey ? (
                     <form action={markReadyAction.bind(null, item.id)}>
                       <button type="submit">Mark ready for dev</button>
                     </form>

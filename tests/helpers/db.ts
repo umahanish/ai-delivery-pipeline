@@ -37,5 +37,9 @@ export function getTestPool(): pg.Pool {
 }
 
 export async function resetDb(pool: pg.Pool): Promise<void> {
-  await pool.query(`TRUNCATE pipeline_events, backlog_items RESTART IDENTITY CASCADE`);
+  // authorized_users has no FK relationship to the other two -- listed
+  // explicitly rather than relying on CASCADE to reach it, so a table
+  // added later (as this one was) doesn't silently stay untruncated the
+  // way this one initially did. See docs/DECISIONS.md.
+  await pool.query(`TRUNCATE pipeline_events, backlog_items, authorized_users RESTART IDENTITY CASCADE`);
 }

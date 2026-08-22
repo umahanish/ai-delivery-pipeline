@@ -14,7 +14,11 @@ is a separate system with its own repo and lifecycle.
 
 ## Status
 
-**All 7 phases are built.** Submitting a backlog item through the web UI
+**All 7 core phases are built, plus Phase 8 (Zero Trust auth/RBAC/guardrails)
+is underway** — see `docs/SECURITY.md` for the full threat model and
+`docs/DECISIONS.md` for the real Edge Runtime bug this phase caught along
+the way. Every route now requires a real, allowlisted GitHub login; there
+is no unauthenticated access anywhere in this app. Submitting a backlog item through the web UI
 creates a real JIRA story; marking it "ready for dev" and running `npm run
 orchestrator` picks it up, runs an isolated Claude Agent SDK
 implement/test/self-review loop against the sample repo, and opens a real
@@ -187,17 +191,44 @@ GITHUB_TOKEN=          # needs repo scope on the target repo -- `gh auth token` 
 ANTHROPIC_API_KEY=     # console.anthropic.com -- powers the Claude Agent SDK coding/review passes
 ```
 
+### Auth setup (required — the UI has no unauthenticated access at all)
+
+Every route requires a real, allowlisted GitHub login — see
+`docs/SECURITY.md` for the full threat model. Fill in `.env`:
+
+```
+AUTH_GITHUB_ID=        # GitHub OAuth App: github.com/settings/developers -> New OAuth App
+AUTH_GITHUB_SECRET=    #   Homepage URL: http://localhost:3000
+                        #   Authorization callback URL: http://localhost:3000/api/auth/callback/github
+AUTH_SECRET=           # node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+AUTH_URL=http://localhost:3000
+```
+
+Then authorize yourself — a valid GitHub account alone isn't enough,
+there's no open self-signup:
+
+```bash
+npm run authorize-user -- <your-github-login> maintainer
+```
+
+`viewer` is the other role (read-only — can see the list, can't submit
+or mark items ready). There's no admin UI for managing this yet; it's a
+named gap in `docs/SECURITY.md`, run the command again to add more people.
+
 ### Run the UI
 
 ```bash
 npm run dev
 ```
 
-Open http://localhost:3000 — submit a backlog item at `/new`, watch it
-appear on the list with its JIRA key (or a `jira_failed` badge if JIRA
-isn't configured), and use "Mark ready for dev" once a story exists.
-There's also a REST API at `/api/backlog-items` (`GET` to list, `POST` to
-create) for external/scripted use.
+Open http://localhost:3000, sign in with the GitHub account you just
+authorized. Submit a backlog item at `/new`, watch it appear on the list
+with its JIRA key (or a `jira_failed` badge if JIRA isn't configured),
+and use "Mark ready for dev" once a story exists. There's also a REST
+API at `/api/backlog-items` (`GET` to list, `POST` to create,
+maintainer-only) — same session-cookie auth as the UI, so a bare `curl`
+call needs a browser-established session; see the route's own comment
+for what a genuine machine-to-machine caller would need instead.
 
 ### Run the whole pipeline
 
@@ -234,17 +265,21 @@ right `GITHUB_TOKEN` scope) — you just won't get CI/deploy gating on it.
 
 ```
 src/
-  db/            schema.sql, migrations/, pool.ts, backlogItems.ts (data access)
+  db/            schema.sql, migrations/, pool.ts, backlogItems.ts, authorizedUsers.ts (RBAC allowlist)
   jira/          client.ts (create-issue only, not a full connector), adf.ts (text -> Atlassian Document Format), fromEnv.ts
-  lib/           createBacklogItem.ts — the one place "insert row, then create JIRA story" logic lives
+  lib/           createBacklogItem.ts, rateLimit.ts (Phase 8, in-memory)
   agent/         runCodingAgent.ts (Claude Agent SDK wrapper), prompts.ts (implement/fix/self-review prompt building)
   github/        client.ts (PR creation, merge/review/CI-status checks), parseRepo.ts
   orchestrator/  git.ts, workspace.ts, processBacklogItem.ts (Phase 4's implement/test/review loop), deployStatus.ts (Phase 6-7's reconciliation)
-  app/           Next.js App Router: page.tsx (list), new/page.tsx (form), actions.ts (Server Actions), api/backlog-items/route.ts (REST)
-scripts/         migrate.ts, migrate-test.ts, run-orchestrator.ts, sync-deploy-status.ts
+  app/           Next.js App Router: page.tsx (list), new/page.tsx (form), signin/, actions.ts (Server Actions), api/backlog-items/route.ts (REST), api/auth/ (NextAuth)
+  auth.ts        full NextAuth config (Node runtime -- Server Components/Actions/Route Handlers)
+  auth.config.ts Edge-safe base config (no DB access) -- used by middleware.ts only, see docs/DECISIONS.md
+  middleware.ts  Phase 8: the single auth enforcement point for every route
+scripts/         migrate.ts, migrate-test.ts, run-orchestrator.ts, sync-deploy-status.ts, authorize-user.ts (RBAC admin CLI)
 docs/
   DECISIONS.md    every judgment call, including bugs found while building
   DEMO_SCRIPT.md  a full end-to-end walkthrough
+  SECURITY.md     Phase 8's threat model -- what's protected, why, and named gaps
 ```
 
 ## Development

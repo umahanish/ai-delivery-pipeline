@@ -135,6 +135,10 @@ th {
 
 .priority-critical, .priority-high { color: var(--danger); }
 
+/* Phase 8: RBAC role badge in the header. */
+.role-maintainer { color: var(--success); border-color: var(--success); }
+.role-viewer { color: var(--muted); border-color: var(--border); }
+
 form.item-form {
   display: flex;
   flex-direction: column;

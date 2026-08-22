@@ -886,3 +886,94 @@ as something the orchestrator points at, not something living inside
   time additionally fetched the raw file back from the GitHub API after
   pushing to read its real committed content rather than trusting the
   local file matched what shipped.
+
+## Phase 8 — real auth, not a checkbox exercise
+
+- **Scoped from an explicit, exhaustive user request** — asked which
+  Zero Trust/guardrail controls and which observability pieces mattered
+  most before writing anything; the user selected all of them. Rather
+  than attempt everything in one undifferentiated pass, tracked it the
+  same way Phases 1-7 were tracked: real checklist items in `CLAUDE.md`,
+  checked off only once actually built and verified, not when merely
+  planned.
+- **GitHub OAuth over a password store, and why that's not a shortcut**:
+  "don't roll your own auth" is itself defensible as a Zero Trust
+  principle — password hashing, reset flows, and credential storage are
+  a whole class of mistakes a real OAuth provider already solved. GitHub
+  was the obvious provider given it's already this project's central
+  identity (every PR the coding agent opens is authored as a GitHub
+  account).
+- **No open self-signup, the actual Zero Trust part**: a valid GitHub
+  account gets you to the consent screen, not into the app — `signIn()`
+  in `src/auth.ts` checks the `authorized_users` allowlist and refuses
+  the session outright otherwise. `npm run authorize-user -- <login>
+  <role>` is the (CLI-only, no admin UI yet — named as a gap, not
+  hidden) onboarding tool.
+- **A real, live-caught Edge Runtime bug, not a theoretical one**: the
+  first working version put the DB-touching `signIn`/`jwt` callbacks
+  directly in the same `auth.ts` that `src/middleware.ts` imports.
+  Next.js runs middleware in the Edge Runtime by default; Edge can't
+  load Node's `crypto` module, which `pg` needs for its SASL
+  authentication handshake. The build itself only warned about this
+  (`jose`'s `CompressionStream`/`DecompressionStream`, an unrelated
+  edge-compat wrinkle one layer up); the real failure only showed up at
+  runtime as `GET / 500` with `Error: The edge runtime does not support
+  Node.js 'crypto' module` in the dev server's own log — caught by
+  actually hitting the running server, not by trusting a clean-looking
+  build, consistent with this project's whole approach. Fixed with the
+  standard Auth.js split-config pattern: `src/auth.config.ts` (no
+  providers, no DB-touching callbacks — genuinely Edge-safe) for
+  `src/middleware.ts`, and the full `src/auth.ts` (built on top of that
+  base config, adding GitHub + the Postgres role lookup) for everywhere
+  else, since every other consumer (Server Components, Server Actions,
+  Route Handlers) runs in the Node.js runtime by default, where `pg`
+  works fine. Confirmed by the middleware bundle size dropping from
+  113 kB to 86.5 kB in `next build`'s own output once `pg` was no longer
+  reachable from it.
+- **The OAuth login flow was verified live end to end via the actual
+  browser**, not assumed to work because the code typechecked — the
+  browser automation tool's own screenshot/CDP pipeline had genuine
+  hiccups mid-test (repeated `Page.captureScreenshot` timeouts, and one
+  screenshot that appeared to show the GitHub consent page again after
+  it had already been authorized, which turned out to be a stale/cached
+  render, not a real navigation). Cross-checked against the dev server's
+  own request log — ground truth, immune to any extension-side
+  rendering glitch — which showed the real sequence:
+  `GET /api/auth/callback/github?code=... 302` then `GET / 200`,
+  confirming the callback and session creation both genuinely succeeded.
+  A second, cleaner pass (single click, explicit wait, fresh navigation)
+  then confirmed the session persists across a real full page reload —
+  header showing `umahanish · maintainer`, correct RBAC-gated UI — and
+  that sign-out correctly clears it. Clicking "Authorize" on GitHub's
+  own OAuth consent screen was paused on for explicit user permission
+  first, even though it was the user's own app requesting read-only
+  access to their own account — granting an OAuth permission is always
+  a stop-and-ask action, not a risk-graded one.
+- **A second real bug, caught by the test suite doing its job**: the new
+  `authorized_users` table was never added to `tests/helpers/db.ts`'s
+  `resetDb()` TRUNCATE list, so rows written by one test in
+  `authorizedUsers.test.ts` leaked into the next. This is precisely the
+  failure mode a much earlier incident this session was about (a table
+  silently not covered by test isolation) — caught immediately this
+  time because the test suite itself failed loudly (`expected [...4
+  items] to deeply equal [...2 items]`) rather than passing on stale
+  assumptions. Fixed by listing `authorized_users` explicitly in the
+  `TRUNCATE` statement rather than relying on any implicit cascade.
+- **Rate limiting is deliberately in-memory and single-process** — this
+  demo runs as one Next.js process (local dev, or a single Render
+  instance), so a `Map` keyed by GitHub login is honestly sufficient;
+  documented in `src/lib/rateLimit.ts`'s own header comment that a real
+  multi-instance deployment needs a shared store (Redis/Upstash)
+  instead, rather than presenting the simple version as if it were
+  already that.
+- **Security headers verified live with `curl -I`**, not just written
+  into `next.config.ts` and assumed correct — all five
+  (`X-Frame-Options`, `Content-Security-Policy`, `X-Content-Type-Options`,
+  `Referrer-Policy`, `Strict-Transport-Security`) confirmed present on a
+  real response from the running dev server.
+- **The REST API's own doc comment was narrowed, not silently left
+  stale**: it used to promise "external/scripted use." Session-cookie
+  auth (correctly) breaks a bare `curl` call with no browser-established
+  session — noted directly in `src/app/api/backlog-items/route.ts`'s own
+  comment and in `docs/SECURITY.md`'s named gaps, rather than leaving the
+  old claim in place after the behavior underneath it changed.

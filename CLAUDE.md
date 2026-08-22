@@ -254,18 +254,26 @@ not assumed. Biggest starting gap — confirmed by grep, not guessed —
 is that the Backlog UI currently has **zero authentication**: every
 route and Server Action is open to anyone with the URL.
 
-- [ ] Real authentication on the Backlog UI. NextAuth.js + GitHub OAuth
+- [x] Real authentication on the Backlog UI. NextAuth.js + GitHub OAuth
       (not a hand-rolled password store — "don't roll your own auth" is
       itself a Zero Trust principle, and GitHub is already this
       project's central identity anyway). Needs a GitHub OAuth App
-      (Client ID + Secret) created by the user.
-- [ ] RBAC: two roles minimum — `maintainer` (submit, mark ready for
+      (Client ID + Secret) created by the user. (Live-verified via a
+      real browser OAuth login/logout cycle — see docs/DECISIONS.md.
+      Required splitting auth.ts into an Edge-safe auth.config.ts for
+      middleware, since middleware runs in the Edge Runtime and `pg`
+      needs Node's `crypto` module.)
+- [x] RBAC: two roles minimum — `maintainer` (submit, mark ready for
       dev) and `viewer` (read-only). A small `authorized_users` table
       (GitHub username → role), not open self-signup — Zero Trust means
       nobody is trusted by default, including a new GitHub login.
-- [ ] Middleware enforces auth on every route and Server Action, not
-      just hides UI elements client-side.
-- [ ] AI agent guardrails, formalized: document the existing isolation
+      (`npm run authorize-user` is the admin CLI; no admin UI yet, see
+      docs/SECURITY.md's named gaps.)
+- [x] Middleware enforces auth on every route and Server Action, not
+      just hides UI elements client-side. (Server Actions and the REST
+      API each independently re-check role too — defense in depth, not
+      just middleware.)
+- [x] AI agent guardrails, formalized: document the existing isolation
       properties (throwaway workspace, disallowed-tools list, bounded
       retries, budget caps) as an explicit threat model in
       `docs/SECURITY.md`, plus a prompt-injection consideration — the
@@ -275,9 +283,13 @@ route and Server Action is open to anyone with the URL.
       PAT limited to `delivery-pipeline-sample-app` only, not full
       `repo` scope. Secret-scanning (gitleaks) added as a new required
       CI job alongside the existing Trivy dependency scan.
-- [ ] Transport/request hardening: security headers (CSP, HSTS,
+- [x] Transport/request hardening: security headers (CSP, HSTS,
       X-Frame-Options, Referrer-Policy) via Next.js middleware; rate
-      limiting on the API routes.
+      limiting on the API routes. (Headers via `next.config.ts`'s
+      `headers()`, verified live with `curl -I`. Rate limiting is
+      in-memory/single-process by design — see `src/lib/rateLimit.ts`'s
+      own comment on what a multi-instance deployment would need
+      instead.)
 - [ ] `ai-delivery-pipeline` gets its own CI workflow (typecheck, test,
       build, secret scan) — Phases 5-6 only ever built CI for the
       *target* sample app; the orchestrator's own repo has never had one.
