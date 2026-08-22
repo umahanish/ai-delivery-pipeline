@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import type { ReactNode } from "react";
 import { auth, signOut } from "../auth";
 import "./globals.css";
@@ -27,6 +28,9 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
               color: "var(--muted)",
             }}
           >
+            <Link href="/metrics" className="nav-link">
+              Metrics
+            </Link>
             <span>
               {session.user.githubLogin} ·{" "}
               <span className={`badge role-${session.user.role ?? "viewer"}`}>{session.user.role ?? "viewer"}</span>
