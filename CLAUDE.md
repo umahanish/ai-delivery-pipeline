@@ -290,9 +290,14 @@ route and Server Action is open to anyone with the URL.
       in-memory/single-process by design — see `src/lib/rateLimit.ts`'s
       own comment on what a multi-instance deployment would need
       instead.)
-- [ ] `ai-delivery-pipeline` gets its own CI workflow (typecheck, test,
+- [x] `ai-delivery-pipeline` gets its own CI workflow (typecheck, test,
       build, secret scan) — Phases 5-6 only ever built CI for the
       *target* sample app; the orchestrator's own repo has never had one.
+      (`.github/workflows/ci.yml`, verified live: run 32556141466, all 3
+      jobs passed. Branch protection now enabled on this repo's own
+      `main` too — `test`+`build`+`secret-scan` required, admins
+      enforced, no review requirement since the sole account can't
+      self-approve. This repo now takes PRs like the sample app does.)
 
 ## Phase 9 — Observability & monitoring
 

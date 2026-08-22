@@ -977,3 +977,34 @@ as something the orchestrator points at, not something living inside
   session — noted directly in `src/app/api/backlog-items/route.ts`'s own
   comment and in `docs/SECURITY.md`'s named gaps, rather than leaving the
   old claim in place after the behavior underneath it changed.
+- **Phase 8's final item — this repo gets its own CI, and its own branch
+  protection**: `ai-delivery-pipeline` had never had a CI workflow at
+  all (Phases 5-6 only ever built CI for the *target* sample app it
+  develops against) and had zero branch protection on `main`
+  (`gh api .../branches/main/protection` returned a plain `404 Branch
+  not protected` when checked, not an error — confirmed empirically
+  rather than assumed). Added `.github/workflows/ci.yml` with three
+  jobs — `test` (spins up a real `postgres:16` service container,
+  applies migrations via `npm run migrate:test`, runs the full suite),
+  `build` (`next build`), and `secret-scan` (gitleaks, same pattern as
+  the sample app's). CI env vars are dummies (`ci-only-dummy-secret...`,
+  `ci-dummy`) verified empirically to be sufficient — ran
+  `env -i PATH=... npm run build` locally with only the 5 vars `next
+  build` actually touches (`DATABASE_URL`, `AUTH_SECRET`,
+  `AUTH_GITHUB_ID`, `AUTH_GITHUB_SECRET`, `AUTH_URL`) to confirm
+  JIRA/GITHUB_TOKEN/ANTHROPIC_API_KEY/SENTRY/SLACK are never read at
+  build time, rather than guessing which vars CI would need.
+  Bootstrapped by pushing the workflow directly to `main` (the only way
+  to get a first green run before any protection exists to route around)
+  — verified live, run `32556141466`, all three jobs passed. Then
+  enabled branch protection requiring all three contexts, with
+  `enforce_admins: true` and `required_pull_request_reviews: null` —
+  the same self-approval-deadlock pattern already used on the sample
+  app (this repo's only collaborator is also its only author, so
+  GitHub's own review requirement is unsatisfiable and had to be
+  omitted rather than left in place and silently un-enforceable). From
+  this point forward `ai-delivery-pipeline` itself takes changes via PR
+  like the sample app already does — consistent with the project's own
+  Zero Trust framing: an "enterprise production ready" template
+  shouldn't allow direct pushes to `main` on any of its own repos,
+  including itself.
