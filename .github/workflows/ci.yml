@@ -1,0 +1,85 @@
+# Phase 8's last checklist item: this repo (the orchestrator itself)
+# never had its own CI -- Phases 5-6 only ever built CI for the *target*
+# sample app it develops against. Required env vars for build/test are
+# real minimal requirements, verified locally (env -i with only these 5
+# set), not guessed -- see docs/DECISIONS.md. All values below are
+# dummies scoped to CI only: JIRA_*/GITHUB_TOKEN/ANTHROPIC_API_KEY/
+# SENTRY_DSN/SLACK_WEBHOOK_URL are never read at build/typecheck/test
+# time (only at request/script runtime), so CI needs none of them.
+
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+env:
+  AUTH_SECRET: ci-only-dummy-secret-never-used-for-real-sessions
+  AUTH_GITHUB_ID: ci-dummy
+  AUTH_GITHUB_SECRET: ci-dummy
+  AUTH_URL: http://localhost:3000
+
+jobs:
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: delivery_pipeline_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      # Never actually connected to in this job -- tests only ever use
+      # TEST_DATABASE_URL. Points at the always-present `postgres`
+      # maintenance db purely so the two values differ as strings
+      # (tests/helpers/db.ts refuses to start otherwise).
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+      TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/delivery_pipeline_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run migrate:test
+      - run: npm test
+
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+
+  # No GITLEAKS_LICENSE needed -- only required for organization-owned
+  # repos, this one is a personal account (same as the sample app).
+  secret-scan:
+    name: secret-scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
