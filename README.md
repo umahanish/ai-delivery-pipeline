@@ -40,9 +40,11 @@ alone.
 
 ## End-to-end pipeline
 
+![AI Delivery Pipeline — end-to-end architecture](images/ai_delivery_pipeline_architecture.svg)
+
 ### Task details
 
-Eight stages, read top to bottom in the diagram below:
+Eight stages, read top to bottom in the diagram above:
 
 1. **Product Owner / PM / Scrum Master** — the only human who kicks
    things off. Opens the web UI and fills out a backlog item: what to
@@ -81,8 +83,6 @@ Eight stages, read top to bottom in the diagram below:
    onto the original backlog item, so the PM can see the whole journey
    from the same screen they started at, without checking four different
    tools.
-
-![AI Delivery Pipeline — end-to-end architecture](images/ai_delivery_pipeline_architecture.svg)
 
 A PM submits a backlog item → it becomes a real JIRA story → an
 autonomous coding agent implements it and opens a PR → CI gates run
