@@ -1,8 +1,13 @@
-<svg width="100%" viewBox="0 0 720 800" role="img" xmlns="http://www.w3.org/2000/svg">
+<svg width="100%" viewBox="0 0 720 1040" role="img" xmlns="http://www.w3.org/2000/svg">
 <title>AI Delivery Pipeline — end-to-end architecture</title>
-<desc>A Product Owner submits a backlog item through a web UI. It becomes a JIRA story, then an autonomous coding agent implements it and opens a pull request. CI quality gates run automatically; a human is the only one who can approve the merge. Merging triggers an automatic staging deploy and security scan, and the result is synced back to the UI.</desc>
+<desc>A Product Owner submits a backlog item through a web UI. It becomes a JIRA story, then an autonomous coding agent implements it and opens a pull request. CI quality gates — including a performance test — run automatically; a human is the only one who can approve the merge. Merging triggers an automatic staging deploy and security scan, and the result is synced back to the UI. Two cross-cutting concerns wrap every stage of this flow: Zero Trust (auth, RBAC, rate limiting, security headers) and observability (structured logs, error tracking, Slack alerts, a metrics dashboard, uptime monitoring).</desc>
 
 <defs><marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
+
+<!-- ==== trust boundary: every stage from Backlog UI through Status-sync sits
+     inside this frame, wrapped by Zero Trust + Observability. Drawn first so
+     it sits behind the solid stage boxes, visible only in the margins. ==== -->
+<rect x="110" y="88" width="580" height="634" rx="16" style="fill:none;stroke:rgb(137,135,129);stroke-width:1.5px;stroke-dasharray:6 4"/>
 
 <!-- ==== flow ==== -->
 
@@ -48,64 +53,94 @@
 </g>
 
 <line x1="340" y1="334" x2="340" y2="364" style="stroke:rgb(137,135,129);stroke-width:1.5px" marker-end="url(#arrow)"/>
-<text x="350" y="352" style="fill:rgb(120,118,113);font-family:anthropic-sans, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;font-size:11px;font-style:italic">3 required checks run automatically</text>
+<text x="350" y="352" style="fill:rgb(120,118,113);font-family:anthropic-sans, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;font-size:11px;font-style:italic">4 required checks run automatically</text>
 
 <!-- 5. CI gates -->
 <g style="font-family:anthropic-sans, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
-<rect x="160" y="364" width="360" height="56" rx="10" style="fill:rgb(238,237,254);stroke:rgb(83,74,183);stroke-width:0.5px"/>
+<rect x="160" y="364" width="360" height="76" rx="10" style="fill:rgb(238,237,254);stroke:rgb(83,74,183);stroke-width:0.5px"/>
 <text x="340" y="382" text-anchor="middle" dominant-baseline="central" style="fill:rgb(60,52,137);font-size:14px;font-weight:500">CI gates (required status checks)</text>
 <text x="340" y="402" text-anchor="middle" dominant-baseline="central" style="fill:rgb(83,74,183);font-size:11.5px">tests + SonarCloud + Trivy (Nexus IQ substitute)</text>
+<text x="340" y="422" text-anchor="middle" dominant-baseline="central" style="fill:rgb(83,74,183);font-size:11.5px">performance test — thresholds checked pre-merge</text>
 </g>
 
-<line x1="340" y1="420" x2="340" y2="450" style="stroke:rgb(137,135,129);stroke-width:1.5px" marker-end="url(#arrow)"/>
+<line x1="340" y1="440" x2="340" y2="470" style="stroke:rgb(137,135,129);stroke-width:1.5px" marker-end="url(#arrow)"/>
 
 <!-- 6. Human approval (emphasis) -->
 <g style="font-family:anthropic-sans, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
-<rect x="200" y="450" width="280" height="56" rx="10" style="fill:rgb(250,236,231);stroke:rgb(153,60,29);stroke-width:1.5px"/>
-<text x="340" y="468" text-anchor="middle" dominant-baseline="central" style="fill:rgb(113,43,19);font-size:14px;font-weight:500">Human reviews &amp; approves</text>
-<text x="340" y="488" text-anchor="middle" dominant-baseline="central" style="fill:rgb(153,60,29);font-size:11.5px">the only step nothing here can automate</text>
+<rect x="200" y="470" width="280" height="56" rx="10" style="fill:rgb(250,236,231);stroke:rgb(153,60,29);stroke-width:1.5px"/>
+<text x="340" y="488" text-anchor="middle" dominant-baseline="central" style="fill:rgb(113,43,19);font-size:14px;font-weight:500">Human reviews &amp; approves</text>
+<text x="340" y="508" text-anchor="middle" dominant-baseline="central" style="fill:rgb(153,60,29);font-size:11.5px">the only step nothing here can automate</text>
 </g>
 
-<line x1="340" y1="506" x2="340" y2="536" style="stroke:rgb(137,135,129);stroke-width:1.5px" marker-end="url(#arrow)"/>
-<text x="350" y="524" style="fill:rgb(120,118,113);font-family:anthropic-sans, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;font-size:11px;font-style:italic">merge triggers the deploy workflow</text>
+<line x1="340" y1="526" x2="340" y2="556" style="stroke:rgb(137,135,129);stroke-width:1.5px" marker-end="url(#arrow)"/>
+<text x="350" y="544" style="fill:rgb(120,118,113);font-family:anthropic-sans, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;font-size:11px;font-style:italic">merge triggers the deploy workflow</text>
 
 <!-- 7. Deploy + scan -->
 <g style="font-family:anthropic-sans, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
-<rect x="140" y="536" width="400" height="76" rx="10" style="fill:rgb(225,245,238);stroke:rgb(15,110,86);stroke-width:0.5px"/>
-<text x="340" y="554" text-anchor="middle" dominant-baseline="central" style="fill:rgb(8,80,65);font-size:14px;font-weight:500">Deploy + scan (on merge to main)</text>
-<text x="340" y="574" text-anchor="middle" dominant-baseline="central" style="fill:rgb(15,110,86);font-size:11.5px">GitHub Actions → Render staging (real public URL)</text>
-<text x="340" y="594" text-anchor="middle" dominant-baseline="central" style="fill:rgb(15,110,86);font-size:11.5px">OWASP ZAP baseline scan (Qualys substitute)</text>
+<rect x="140" y="556" width="400" height="76" rx="10" style="fill:rgb(225,245,238);stroke:rgb(15,110,86);stroke-width:0.5px"/>
+<text x="340" y="574" text-anchor="middle" dominant-baseline="central" style="fill:rgb(8,80,65);font-size:14px;font-weight:500">Deploy + scan (on merge to main)</text>
+<text x="340" y="594" text-anchor="middle" dominant-baseline="central" style="fill:rgb(15,110,86);font-size:11.5px">GitHub Actions → Render staging (real public URL)</text>
+<text x="340" y="614" text-anchor="middle" dominant-baseline="central" style="fill:rgb(15,110,86);font-size:11.5px">OWASP ZAP baseline scan (Qualys substitute)</text>
 </g>
 
-<line x1="340" y1="612" x2="340" y2="636" style="stroke:rgb(137,135,129);stroke-width:1.5px" marker-end="url(#arrow)"/>
+<line x1="340" y1="632" x2="340" y2="656" style="stroke:rgb(137,135,129);stroke-width:1.5px" marker-end="url(#arrow)"/>
 
 <!-- 8. Status synced back -->
 <g style="font-family:anthropic-sans, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
-<rect x="170" y="636" width="340" height="56" rx="10" style="fill:rgb(230,241,251);stroke:rgb(24,95,165);stroke-width:0.5px"/>
-<text x="340" y="654" text-anchor="middle" dominant-baseline="central" style="fill:rgb(12,68,124);font-size:14px;font-weight:500">Status synced back to the UI</text>
-<text x="340" y="674" text-anchor="middle" dominant-baseline="central" style="fill:rgb(24,95,165);font-size:11.5px">JIRA · PR · Review · CI · Deploy — per item</text>
+<rect x="170" y="656" width="340" height="56" rx="10" style="fill:rgb(230,241,251);stroke:rgb(24,95,165);stroke-width:0.5px"/>
+<text x="340" y="674" text-anchor="middle" dominant-baseline="central" style="fill:rgb(12,68,124);font-size:14px;font-weight:500">Status synced back to the UI</text>
+<text x="340" y="694" text-anchor="middle" dominant-baseline="central" style="fill:rgb(24,95,165);font-size:11.5px">JIRA · PR · Review · CI · Deploy — per item</text>
 </g>
 
 <!-- loop back: status -> UI (dashed, routes around the right side) -->
-<path d="M510,664 L700,664 L700,20 L380,20 L380,94" style="stroke:rgb(137,135,129);stroke-width:1.5px;fill:none;stroke-dasharray:4 3" marker-end="url(#arrow)"/>
+<path d="M510,684 L700,684 L700,20 L380,20 L380,94" style="stroke:rgb(137,135,129);stroke-width:1.5px;fill:none;stroke-dasharray:4 3" marker-end="url(#arrow)"/>
 <text x="495" y="14" text-anchor="middle" style="fill:rgb(120,118,113);font-family:anthropic-sans, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;font-size:11px;font-style:italic">npm run sync-deploy-status (runs locally)</text>
+
+<!-- ==== cross-cutting: Zero Trust + Observability wrap everything inside the dashed frame above ==== -->
+<line x1="340" y1="722" x2="190" y2="744" style="stroke:rgb(137,135,129);stroke-width:1.5px;stroke-dasharray:4 3"/>
+<line x1="340" y1="722" x2="530" y2="744" style="stroke:rgb(137,135,129);stroke-width:1.5px;stroke-dasharray:4 3"/>
+<text x="340" y="738" text-anchor="middle" style="fill:rgb(120,118,113);font-family:anthropic-sans, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;font-size:10.5px;font-style:italic">the frame above — every stage wrapped by both</text>
+
+<g style="font-family:anthropic-sans, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
+<rect x="40" y="744" width="300" height="136" rx="10" style="fill:rgb(241,245,249);stroke:rgb(71,85,105);stroke-width:0.5px"/>
+<text x="190" y="766" text-anchor="middle" dominant-baseline="central" style="fill:rgb(30,41,59);font-size:13.5px;font-weight:500">🔒 Zero Trust — every request</text>
+<text x="60" y="788" dominant-baseline="central" style="fill:rgb(51,65,85);font-size:11px">• Middleware auth-gates every route</text>
+<text x="60" y="810" dominant-baseline="central" style="fill:rgb(51,65,85);font-size:11px">• RBAC: maintainer / viewer, allowlisted only</text>
+<text x="60" y="832" dominant-baseline="central" style="fill:rgb(51,65,85);font-size:11px">• Rate limiting on mutating actions</text>
+<text x="60" y="854" dominant-baseline="central" style="fill:rgb(51,65,85);font-size:11px">• Security headers: CSP, HSTS, nosniff</text>
+</g>
+
+<g style="font-family:anthropic-sans, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
+<rect x="380" y="744" width="300" height="136" rx="10" style="fill:rgb(254,249,231);stroke:rgb(161,98,7);stroke-width:0.5px"/>
+<text x="530" y="766" text-anchor="middle" dominant-baseline="central" style="fill:rgb(120,53,15);font-size:13.5px;font-weight:500">📊 Observability — every event</text>
+<text x="400" y="788" dominant-baseline="central" style="fill:rgb(146,90,10);font-size:11px">• Structured JSON logs, correlated by item</text>
+<text x="400" y="810" dominant-baseline="central" style="fill:rgb(146,90,10);font-size:11px">• Sentry error tracking: app + scripts</text>
+<text x="400" y="832" dominant-baseline="central" style="fill:rgb(146,90,10);font-size:11px">• Slack alerts: PR, needs_human, deploy, CI</text>
+<text x="400" y="854" dominant-baseline="central" style="fill:rgb(146,90,10);font-size:11px">• /metrics dashboard + scheduled uptime check</text>
+</g>
 
 <!-- ==== legend ==== -->
 <g style="font-family:anthropic-sans, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
-  <rect x="40" y="724" width="14" height="14" rx="3" style="fill:rgb(241,239,232);stroke:rgb(95,94,90);stroke-width:0.5px"/>
-  <text x="60" y="734" text-anchor="start" dominant-baseline="central" style="fill:rgb(68,68,65);font-size:11.5px">Human input</text>
+  <rect x="40" y="904" width="14" height="14" rx="3" style="fill:rgb(241,239,232);stroke:rgb(95,94,90);stroke-width:0.5px"/>
+  <text x="60" y="914" text-anchor="start" dominant-baseline="central" style="fill:rgb(68,68,65);font-size:11.5px">Human input</text>
 
-  <rect x="220" y="724" width="14" height="14" rx="3" style="fill:rgb(230,241,251);stroke:rgb(24,95,165);stroke-width:0.5px"/>
-  <text x="240" y="734" text-anchor="start" dominant-baseline="central" style="fill:rgb(24,95,165);font-size:11.5px">UI / status feedback</text>
+  <rect x="380" y="904" width="14" height="14" rx="3" style="fill:rgb(230,241,251);stroke:rgb(24,95,165);stroke-width:0.5px"/>
+  <text x="400" y="914" text-anchor="start" dominant-baseline="central" style="fill:rgb(24,95,165);font-size:11.5px">UI / status feedback</text>
 
-  <rect x="440" y="724" width="14" height="14" rx="3" style="fill:rgb(225,245,238);stroke:rgb(15,110,86);stroke-width:0.5px"/>
-  <text x="460" y="734" text-anchor="start" dominant-baseline="central" style="fill:rgb(15,110,86);font-size:11.5px">Automated (agent, deploy)</text>
+  <rect x="40" y="934" width="14" height="14" rx="3" style="fill:rgb(225,245,238);stroke:rgb(15,110,86);stroke-width:0.5px"/>
+  <text x="60" y="944" text-anchor="start" dominant-baseline="central" style="fill:rgb(15,110,86);font-size:11.5px">Automated (agent, deploy)</text>
 
-  <rect x="40" y="754" width="14" height="14" rx="3" style="fill:rgb(238,237,254);stroke:rgb(83,74,183);stroke-width:0.5px"/>
-  <text x="60" y="764" text-anchor="start" dominant-baseline="central" style="fill:rgb(83,74,183);font-size:11.5px">Quality gates (CI)</text>
+  <rect x="380" y="934" width="14" height="14" rx="3" style="fill:rgb(238,237,254);stroke:rgb(83,74,183);stroke-width:0.5px"/>
+  <text x="400" y="944" text-anchor="start" dominant-baseline="central" style="fill:rgb(83,74,183);font-size:11.5px">Quality gates (CI)</text>
 
-  <rect x="220" y="754" width="14" height="14" rx="3" style="fill:rgb(250,236,231);stroke:rgb(153,60,29);stroke-width:1px"/>
-  <text x="240" y="764" text-anchor="start" dominant-baseline="central" style="fill:rgb(153,60,29);font-size:11.5px">Human decision — never automated</text>
+  <rect x="40" y="964" width="14" height="14" rx="3" style="fill:rgb(250,236,231);stroke:rgb(153,60,29);stroke-width:1px"/>
+  <text x="60" y="974" text-anchor="start" dominant-baseline="central" style="fill:rgb(153,60,29);font-size:11.5px">Human decision — never automated</text>
+
+  <rect x="380" y="964" width="14" height="14" rx="3" style="fill:rgb(241,245,249);stroke:rgb(71,85,105);stroke-width:0.5px"/>
+  <text x="400" y="974" text-anchor="start" dominant-baseline="central" style="fill:rgb(71,85,105);font-size:11.5px">Zero Trust (auth · RBAC · rate limits)</text>
+
+  <rect x="40" y="994" width="14" height="14" rx="3" style="fill:rgb(254,249,231);stroke:rgb(161,98,7);stroke-width:0.5px"/>
+  <text x="60" y="1004" text-anchor="start" dominant-baseline="central" style="fill:rgb(161,98,7);font-size:11.5px">Observability (logs · errors · alerts)</text>
 </g>
 
 </svg>

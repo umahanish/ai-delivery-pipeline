@@ -71,9 +71,14 @@ Eight stages, read top to bottom in the diagram above:
    PR, exactly as if a developer had pushed it. Nothing about the next
    two stages is aware the code came from an AI.
 5. **CI gates (required status checks)** — the same automated checks any
-   team would run: the test suite, a SonarCloud code-quality scan, and a
-   dependency vulnerability scan (Trivy). All three must pass before the
-   PR can be merged — GitHub enforces this, not a person remembering to check.
+   team would run: the test suite, a SonarCloud code-quality scan, a
+   dependency vulnerability scan (Trivy), and (in progress) a performance
+   test with pass/fail thresholds. The first three are live today; the
+   fourth is being built the same way every other capability in this
+   template is: as a real backlog story (SCRUM-20), run through this
+   exact pipeline rather than hand-written — see `docs/DECISIONS.md` for
+   where that stands and the real turn-budget/credit issues hit along
+   the way.
 6. **Human reviews & approves** — the one box in this whole diagram that
    is deliberately never automated. A person reads the diff and decides.
    No code anywhere in this project is able to click "merge" — that's a
@@ -129,7 +134,7 @@ flowchart TD
         PUSH --> PR["Open PR via GitHub API\nstatus: pr_open"]
         TEST -- "rounds exhausted" --> STUCK["status: needs_human\nlast agent output attached"]
         REVIEW -- "rounds exhausted" --> STUCK
-        PR --> CI["CI required status checks:\ntests + SonarCloud + Trivy\n(Trivy stands in for Nexus IQ)"]
+        PR --> CI["CI required status checks:\ntests + SonarCloud + Trivy + performance\n(Trivy stands in for Nexus IQ)"]
         CI --> GATE{{"Human reviews\nand approves PR\n(mandatory — no auto-merge,\nbranch protection enforced)"}}
         GATE --> MERGE["Merge to main\nstatus: merged (deploy_status: pending)"]
         MERGE --> DEPLOY["GitHub Actions:\ndeploy to Render staging"]

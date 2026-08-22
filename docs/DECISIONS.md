@@ -1093,3 +1093,49 @@ as something the orchestrator points at, not something living inside
   the same pattern already established for `SONAR_TOKEN`/
   `RENDER_API_KEY`/`RENDER_SERVICE_ID` on the sample app's own CI in an
   earlier phase.
+
+## Phase 10 — performance testing (added via the pipeline itself, not hand-written)
+
+- **Scoped from a real backlog story, not assumed**: the user submitted
+  SCRUM-20 ("Performance Testing") through the actual Backlog UI —
+  title "Performance Testing", description "Do Performance Testing
+  before deploying to the Production Environment", acceptance criteria
+  "it should generate Performance Testing results", targeting
+  `delivery-pipeline-sample-app`. Rather than hand-implementing a
+  performance-testing capability directly (which would have been faster
+  but would have skipped the actual point of this template), it was run
+  through the real pipeline exactly like SCRUM-19: `markReadyForDev` →
+  `npm run orchestrator` → the Claude Agent SDK coding agent implements
+  it in an isolated clone of the target repo → opens a real PR. This is
+  the more meaningful demonstration — the pipeline building
+  production-readiness into the app it delivers, not just this
+  orchestrator's own scaffolding.
+- **A real failure, not a mock one: the coding agent's own account ran
+  out of credit mid-run.** The first `npm run orchestrator` pass on
+  SCRUM-20 exhausted all 3 retry rounds, each failing identically:
+  `Claude Code returned an error result: Credit balance is too low`.
+  This is exactly the kind of unexpected-crash path
+  `processBacklogItem.ts`'s catch-all exists for (see the Phase
+  4/Edge-Runtime entries above for the precedent) — the item landed in
+  `needs_human` with the real error attached to `pipeline_events`, not
+  silently stuck in `in_dev`, and (Phase 9 working as intended) also
+  captured by Sentry and reported to Slack, all without any code change
+  needed to handle it. After the user topped up the account's credit
+  balance, the item's status was manually reset from `needs_human` back
+  to `ready_for_dev` (the same transition a human clicking "Mark ready
+  for dev" again would cause — `needs_human` has no automatic retry by
+  design, see CLAUDE.md's Constraints on bounded retries) and
+  `npm run orchestrator` was re-run for real.
+- **Diagram redesigned to show Zero Trust and observability, not just
+  the happy-path flow** — user feedback, direct: the architecture SVG
+  only ever showed the eight pipeline stages, with nothing depicting
+  Phase 8/9's guardrails at all. Added two cross-cutting boxes below the
+  flow ("🔒 Zero Trust — every request" and "📊 Observability — every
+  event"), connected to the flow with a labeled fork ("both wrap every
+  stage above, not just one step") rather than pretending either one is
+  a single pipeline stage — they aren't, they're properties of every
+  stage. Verified by rendering locally (`python -m http.server` over the
+  `images/` directory, screenshotted in a real browser) before treating
+  it as done, same discipline as the original diagram redesign — this
+  project has been burned once already by shipping an SVG that looked
+  right locally and broke on GitHub.

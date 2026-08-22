@@ -63,7 +63,12 @@ export async function processBacklogItem(deps: ProcessBacklogItemDeps, item: Bac
     for (let round = 1; round <= deps.maxRounds; round++) {
       roundsAttempted = round;
       const prompt = round === 1 ? buildImplementPrompt(story) : buildFixPrompt(story, lastOutput);
-      const implementResult = await deps.agentRunner({ cwd: workspace.dir, prompt, maxTurns: 15 });
+      // Raised 15 -> 30: SCRUM-20 (adding a new tool + wiring a CI job, not
+      // just editing one existing endpoint) hit error_max_turns at 15 on
+      // all 3 rounds without ever reaching self-review -- the same kind of
+      // real, observed insufficiency that raised the review pass's own
+      // maxTurns 3 -> 8 earlier. See docs/DECISIONS.md.
+      const implementResult = await deps.agentRunner({ cwd: workspace.dir, prompt, maxTurns: 30 });
       lastOutput = implementResult.resultText;
 
       if (!implementResult.success) {
