@@ -4,6 +4,7 @@
 // src/db/persist.ts, and what lets tests point these at a test pool.
 
 import type pg from "pg";
+import { logger } from "../lib/logger";
 
 export type Priority = "low" | "medium" | "high" | "critical";
 
@@ -223,10 +224,16 @@ export async function getBacklogItem(pool: pg.Pool, id: string): Promise<Backlog
   return row ? mapRow(row) : null;
 }
 
+/**
+ * The one write path for the audit trail — every call also emits a
+ * structured JSON log line (Phase 9) with the same correlation id, so the
+ * DB row and the log stream never drift out of sync with each other.
+ */
 export async function logPipelineEvent(pool: pg.Pool, backlogItemId: string, eventType: string, detail?: string): Promise<void> {
   await pool.query(`INSERT INTO pipeline_events (backlog_item_id, event_type, detail) VALUES ($1, $2, $3)`, [
     backlogItemId,
     eventType,
     detail ?? null,
   ]);
+  logger.info(eventType, { correlationId: backlogItemId, detail });
 }

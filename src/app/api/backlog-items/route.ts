@@ -20,6 +20,7 @@ import { listBacklogItems } from "../../../db/backlogItems";
 import { getPool } from "../../../db/pool";
 import { createJiraClientFromEnv } from "../../../jira/fromEnv";
 import { createBacklogItem } from "../../../lib/createBacklogItem";
+import { logger } from "../../../lib/logger";
 import { checkRateLimit } from "../../../lib/rateLimit";
 
 const NewBacklogItemSchema = z.object({
@@ -43,6 +44,7 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   const { allowed } = checkRateLimit(`api:${session.user.githubLogin ?? "unknown"}`, 20, 10 * 60 * 1000);
   if (!allowed) {
+    logger.warn("rate_limited", { githubLogin: session.user.githubLogin ?? "unknown", surface: "api" });
     return NextResponse.json({ error: "rate limit exceeded — try again in a few minutes" }, { status: 429 });
   }
 

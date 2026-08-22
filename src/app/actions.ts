@@ -8,6 +8,7 @@ import { markReadyForDev } from "../db/backlogItems";
 import { getPool } from "../db/pool";
 import { createJiraClientFromEnv } from "../jira/fromEnv";
 import { createBacklogItem } from "../lib/createBacklogItem";
+import { logger } from "../lib/logger";
 import { checkRateLimit } from "../lib/rateLimit";
 
 /**
@@ -27,6 +28,7 @@ async function requireMaintainer(): Promise<string> {
   const login = session.user.githubLogin ?? "unknown";
   const { allowed } = checkRateLimit(`action:${login}`, 20, 10 * 60 * 1000);
   if (!allowed) {
+    logger.warn("rate_limited", { githubLogin: login, surface: "action" });
     throw new Error("Too many actions too quickly — wait a few minutes and try again.");
   }
   return login;

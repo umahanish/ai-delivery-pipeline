@@ -15,11 +15,14 @@
 import NextAuth from "next-auth";
 import { NextResponse } from "next/server";
 import { authConfig } from "./auth.config";
+import { logger } from "./lib/logger";
 
 const { auth } = NextAuth(authConfig);
 
 export default auth((req) => {
   if (req.auth) return NextResponse.next();
+
+  logger.warn("auth_denied", { path: req.nextUrl.pathname });
 
   // API callers (README documents this route "for external/scripted
   // use") want a 401 they can branch on, not a 302 into an HTML page.
@@ -34,6 +37,9 @@ export default auth((req) => {
 
 export const config = {
   // Everything except NextAuth's own API routes, the sign-in page itself
-  // (or this would redirect-loop), and Next's static/internal assets.
-  matcher: ["/((?!api/auth|signin|_next/static|_next/image|favicon.ico).*)"],
+  // (or this would redirect-loop), Next's static/internal assets, and the
+  // health check (Phase 9) -- an external uptime monitor has no session
+  // cookie to present, and a health endpoint that itself requires auth
+  // defeats the point.
+  matcher: ["/((?!api/auth|api/health|signin|_next/static|_next/image|favicon.ico).*)"],
 };
